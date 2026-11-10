@@ -1,8 +1,8 @@
 diff --git a/.gitignore b/.gitignore
-index a85ff1f..b22f29d 100644
+index a85ff1f..fd24029 100644
 --- a/.gitignore
 +++ b/.gitignore
-@@ -98,3 +98,7 @@ app.json
+@@ -98,3 +98,8 @@ app.json
  
  # Project-local Serena configuration and memories.
  .serena/
@@ -10,6 +10,7 @@ index a85ff1f..b22f29d 100644
 +# Native entry directories, written by the turbopaseo Makefile
 +packages/cli/native/
 +packages/server/native/
++packages/server/zzprobe-*/
 diff --git a/packages/cli/src/classify.ts b/packages/cli/src/classify.ts
 index b9337b9..1e427e4 100644
 --- a/packages/cli/src/classify.ts
@@ -2665,10 +2666,68 @@ index e7fd869..0000000
 -  ): Promise<string[]>;
 -  export default which;
 -}
+diff --git a/packages/server/src/server/agent/agent-manager.test.ts b/packages/server/src/server/agent/agent-manager.test.ts
+index ccf29b1..e440975 100644
+--- a/packages/server/src/server/agent/agent-manager.test.ts
++++ b/packages/server/src/server/agent/agent-manager.test.ts
+@@ -1,3 +1,4 @@
++import { pluginHooksFrom } from "../test-utils/plugin-hooks.js";
+ import { createIdleRuntimeCleanup } from "./idle-runtime-cleanup/index.js";
+ import {
+   prepareAgentMessage,
+@@ -8070,13 +8071,13 @@ test("workspace ownership does not turn an ordinary agent into a disposable help
+     registry: storage,
+     logger,
+     idFactory: () => agentId,
+-    pluginLifecycle: {
++    pluginLifecycle: pluginHooksFrom({
+       emit: () => {},
+       before: async (name, request) => {
+         beforeHookCalls.push(name);
+         return request;
+       },
+-    },
++    }),
+   });
+ 
+   await manager.createAgent({ provider: "codex", cwd: workdir, title: "Helper" }, undefined, {
+@@ -12379,12 +12380,12 @@ test.each([
+       registry: new AgentStorage(join(workdir, "agents"), logger),
+       logger,
+       timelineStore,
+-      pluginLifecycle: {
++      pluginLifecycle: pluginHooksFrom({
+         before: async (_name, request) => request,
+         emit: (name, event) => {
+           events.push({ name, event });
+         },
+-      },
++      }),
+     });
+     onTestFinished(async () => {
+       await manager.closeAgent(manager.listAgents()[0]!.id);
 diff --git a/packages/server/src/server/agent/agent-manager.ts b/packages/server/src/server/agent/agent-manager.ts
-index 94250e5..f58cf31 100644
+index 94250e5..0b7e433 100644
 --- a/packages/server/src/server/agent/agent-manager.ts
 +++ b/packages/server/src/server/agent/agent-manager.ts
+@@ -3,7 +3,7 @@ import type { AgentToolResult } from "@getpaseo/plugin/server";
+ import type { RuntimeCleanupCandidate } from "./idle-runtime-cleanup/index.js";
+ import { ensureAgentLoaded } from "./agent-loading.js";
+ import { projectTimelineRows } from "./timeline-projection.js";
+-import type { PluginLifecycle } from "../plugins/lifecycle/index.js";
++import type { PluginLifecycleHooks } from "../plugins/lifecycle/index.js";
+ import { describeHookAgent, publishAgentStream } from "../plugins/lifecycle/index.js";
+ import type { PluginSessionOpenRequest } from "@getpaseo/plugin/server";
+ import { randomUUID } from "node:crypto";
+@@ -327,7 +327,7 @@ export interface CreateAgentOptions {
+ }
+ 
+ export interface AgentManagerOptions {
+-  pluginLifecycle?: PluginLifecycle;
++  pluginLifecycle?: PluginLifecycleHooks;
+   /** An internal workspace makes every agent created inside it internal. */
+   clients?: ProviderClientMap;
+   providerDefinitions?: ProviderEnabledMap;
 @@ -462,14 +462,16 @@ type ManagedAgentWithSession = ManagedAgentBase & {
    session: AgentSession;
  };
@@ -2709,6 +2768,15 @@ index 94250e5..f58cf31 100644
  const AgentIdSchema = z.guid();
  
  function isAgentBusy(status: AgentLifecycleStatus): boolean {
+@@ -747,7 +752,7 @@ export interface RetiredInternalAgent {
+ }
+ 
+ export class AgentManager {
+-  private readonly pluginLifecycle: PluginLifecycle | undefined;
++  private readonly pluginLifecycle: PluginLifecycleHooks | undefined;
+   private readonly retiredInternalAgents = new Map<
+     string,
+     RetiredInternalAgent & { expiresAt: number }
 @@ -821,7 +826,11 @@ export class AgentManager {
      this.beforeSteerUnavailableFallback = options.beforeSteerUnavailableFallback;
      this.agentStreamCoalescer = new AgentStreamCoalescer({
@@ -2732,6 +2800,15 @@ index 94250e5..f58cf31 100644
              error: null,
            };
          } catch (error) {
+@@ -1361,7 +1371,7 @@ export class AgentManager {
+     this.assertAcceptingAgentRegistrations();
+     const resolvedAgentId = validateAgentId(agentId ?? this.idFactory(), "createAgent");
+     if (this.pluginLifecycle && !config.internal) {
+-      const request = await this.pluginLifecycle.before("agent.create.before", {
++      const request = await this.pluginLifecycle.beforeAgentCreate({
+         config,
+         env: options.env,
+       });
 @@ -1405,8 +1415,8 @@ export class AgentManager {
        launchEnv: options.env ? { ...options.env } : undefined,
        historyPrimed: true,
@@ -2739,7 +2816,7 @@ index 94250e5..f58cf31 100644
 -    if (!agent.internal) {
 -      this.pluginLifecycle?.emit("agent.create.after", {
 +    if (!agent.internal && this.pluginLifecycle) {
-+      this.pluginLifecycle.emit("agent.create.after", {
++      this.pluginLifecycle.emitAgentCreateAfter({
          agent: describeHookAgent({ ...agent, title: agent.config.title }),
        });
      }
@@ -2750,7 +2827,7 @@ index 94250e5..f58cf31 100644
 -    if (!record.archivedAt && !record.internal) {
 -      this.pluginLifecycle?.emit("agent.archive.after", {
 +    if (!record.archivedAt && !record.internal && this.pluginLifecycle) {
-+      this.pluginLifecycle.emit("agent.archive.after", {
++      this.pluginLifecycle.emitAgentArchiveAfter({
          agent: describeHookAgent(archivedRecord),
          archivedAt: archivedRecord.archivedAt,
        });
@@ -2906,7 +2983,7 @@ index 94250e5..f58cf31 100644
 -    if (!agent.internal) {
 -      this.pluginLifecycle?.emit("agent.close.after", {
 +    if (!agent.internal && this.pluginLifecycle) {
-+      this.pluginLifecycle.emit("agent.close.after", {
++      this.pluginLifecycle.emitAgentCloseAfter({
          agent: describeHookAgent({ ...agent, title: agent.config.title }),
        });
      }
@@ -2963,6 +3040,15 @@ index 94250e5..f58cf31 100644
        }
      } catch (error) {
        this.logger.warn({ err: error, agentId: agent.id }, "Failed to hydrate provider history");
+@@ -5598,7 +5623,7 @@ export class AgentManager {
+         tools: [],
+         mcpServers: {},
+       };
+-      const transformed = await this.pluginLifecycle.before("agent.open.before", request);
++      const transformed = await this.pluginLifecycle.beforeAgentOpen(request);
+       env = transformed.env;
+       if (request.purpose === "interactive") {
+         this.attachedPluginTools.set(agentId, transformed.tools as AttachedAgentTool[]);
 diff --git a/packages/server/src/server/agent/agent-messages/delivery.ts b/packages/server/src/server/agent/agent-messages/delivery.ts
 index f26d83e..e0d49b6 100644
 --- a/packages/server/src/server/agent/agent-messages/delivery.ts
@@ -5137,8 +5223,49 @@ index 2d20056..b13bed3 100644
      return this.closePromise;
    }
  
+diff --git a/packages/server/src/server/agent/provider-launch-config.ts b/packages/server/src/server/agent/provider-launch-config.ts
+index 29554fd..38b29b9 100644
+--- a/packages/server/src/server/agent/provider-launch-config.ts
++++ b/packages/server/src/server/agent/provider-launch-config.ts
+@@ -277,3 +277,15 @@ export async function isProviderCommandAvailable(
+     return false;
+   }
+ }
++
++/**
++ * `overrides?.[provider]`, without reading a key the record does not have. In the native
++ * daemon scriptc holds these z.infer records as checked-dynamic values, and reading a missing
++ * key there checks undefined against the override type and throws.
++ */
++export function providerOverrideFor(
++  overrides: Record<string, ProviderOverride> | undefined,
++  provider: string,
++): ProviderOverride | undefined {
++  return overrides && provider in overrides ? overrides[provider] : undefined;
++}
+diff --git a/packages/server/src/server/agent/provider-registry.ts b/packages/server/src/server/agent/provider-registry.ts
+index 0f3c398..692af50 100644
+--- a/packages/server/src/server/agent/provider-registry.ts
++++ b/packages/server/src/server/agent/provider-registry.ts
+@@ -1,6 +1,7 @@
+ import type { Logger } from "pino";
+ import type { ProviderOptions, ToolPolicy } from "@getpaseo/protocol/agent-types";
+ 
++import { providerOverrideFor } from "./provider-launch-config.js";
+ import type {
+   AgentClient,
+   AgentCreateConfigUnattendedInput,
+@@ -926,7 +927,7 @@ export function buildProviderRegistry(
+     if (resolvedProviders.has(provider)) {
+       throw new Error(`Plugin provider '${provider}' conflicts with a built-in provider`);
+     }
+-    const override = providerOverrides[provider];
++    const override = providerOverrideFor(providerOverrides, provider);
+     if (definition.requiresConfiguration && !override) continue;
+ 
+     if (override?.extends) {
 diff --git a/packages/server/src/server/agent/provider-snapshot-manager.ts b/packages/server/src/server/agent/provider-snapshot-manager.ts
-index b10a4f8..6ee9786 100644
+index b10a4f8..fd1505b 100644
 --- a/packages/server/src/server/agent/provider-snapshot-manager.ts
 +++ b/packages/server/src/server/agent/provider-snapshot-manager.ts
 @@ -1,13 +1,12 @@
@@ -5156,7 +5283,15 @@ index b10a4f8..6ee9786 100644
  import { expandTilde } from "../../utils/path.js";
  import { withTimeout } from "../../utils/promise-timeout.js";
  import {
-@@ -217,7 +216,7 @@ interface RegistryGeneration {
+@@ -32,6 +31,7 @@ import type {
+   AgentProviderRuntimeSettingsMap,
+   ProviderOverride,
+ } from "./provider-launch-config.js";
++import { providerOverrideFor } from "./provider-launch-config.js";
+ import {
+   buildProviderRegistry,
+   shutdownAgentClients,
+@@ -217,7 +217,7 @@ interface RegistryGeneration {
    order: readonly AgentProvider[];
    providerStates: ReadonlyMap<
      AgentProvider,
@@ -5165,7 +5300,7 @@ index b10a4f8..6ee9786 100644
    >;
  }
  
-@@ -236,7 +235,9 @@ interface ProviderSnapshotTarget {
+@@ -236,7 +236,9 @@ interface ProviderSnapshotTarget {
  export class ProviderSnapshotManager {
    private readonly catalogs = new Map<string, Map<AgentProvider, ProviderCatalog>>();
    private readonly targets = new Map<string, Target>();
@@ -5176,7 +5311,25 @@ index b10a4f8..6ee9786 100644
    private destroyed = false;
    private refreshTimeoutMs: number;
    private diagnosticTimeoutMs: number;
-@@ -676,13 +677,14 @@ export class ProviderSnapshotManager {
+@@ -417,7 +419,7 @@ export class ProviderSnapshotManager {
+     const retiredProviders = Object.keys(previousPlugins).filter(
+       (provider) =>
+         previousPlugins[provider] !== plugins[provider] &&
+-        !this.providerOverrides?.[provider]?.extends,
++        !providerOverrideFor(this.providerOverrides, provider)?.extends,
+     );
+     const definitions = this.buildRegistry(this.runtimeSettings, this.providerOverrides);
+     const changed = new Set<AgentProvider>();
+@@ -426,7 +428,7 @@ export class ProviderSnapshotManager {
+       const after = definitions[provider];
+       const registrationChanged =
+         previousPlugins[provider] !== plugins[provider] &&
+-        !this.providerOverrides?.[provider]?.extends;
++        !providerOverrideFor(this.providerOverrides, provider)?.extends;
+       if (
+         registrationChanged ||
+         !before ||
+@@ -676,13 +678,14 @@ export class ProviderSnapshotManager {
      this.diagnosticTimeoutMs = resolveDiagnosticTimeoutMs(undefined, this.refreshTimeoutMs);
    }
  
@@ -5195,7 +5348,7 @@ index b10a4f8..6ee9786 100644
      return this;
    }
  
-@@ -701,7 +703,7 @@ export class ProviderSnapshotManager {
+@@ -701,7 +704,7 @@ export class ProviderSnapshotManager {
      for (const state of this.generation.providerStates.values()) state.discoveryLimit.clearQueue();
      this.catalogs.clear();
      this.targets.clear();
@@ -5204,7 +5357,7 @@ index b10a4f8..6ee9786 100644
    }
  
    private buildRegistry(
-@@ -834,7 +836,7 @@ export class ProviderSnapshotManager {
+@@ -834,7 +837,7 @@ export class ProviderSnapshotManager {
      const order = Object.keys(definitions);
      const providerStates = new Map<
        AgentProvider,
@@ -5213,9 +5366,13 @@ index b10a4f8..6ee9786 100644
      >();
      for (const provider of order) {
        const definition = definitions[provider]!;
-@@ -847,7 +849,8 @@ export class ProviderSnapshotManager {
+@@ -845,9 +848,11 @@ export class ProviderSnapshotManager {
+       }
+       const custom =
          this.pluginProviders.has(provider) ||
-         (!BUILTIN_PROVIDER_IDS.includes(provider) && !!overrides?.[provider]?.extends);
+-        (!BUILTIN_PROVIDER_IDS.includes(provider) && !!overrides?.[provider]?.extends);
++        (!BUILTIN_PROVIDER_IDS.includes(provider) &&
++          !!providerOverrideFor(overrides, provider)?.extends);
        providerStates.set(provider, {
 -        discoveryLimit: previous?.discoveryLimit ?? pLimit({ concurrency: 4, rejectOnClear: true }),
 +        discoveryLimit:
@@ -5223,7 +5380,7 @@ index b10a4f8..6ee9786 100644
          initial: identifyEntry({
            provider,
            status: definition.enabled ? "loading" : "unavailable",
-@@ -968,11 +971,14 @@ export class ProviderSnapshotManager {
+@@ -968,11 +973,14 @@ export class ProviderSnapshotManager {
      catalog.stale = false;
  
      const current = catalog;
@@ -5240,7 +5397,7 @@ index b10a4f8..6ee9786 100644
          if (!isCurrent()) return;
          return this.refreshProvider({
            catalogOptions,
-@@ -1038,7 +1044,7 @@ export class ProviderSnapshotManager {
+@@ -1038,7 +1046,7 @@ export class ProviderSnapshotManager {
          return;
        }
  
@@ -5249,7 +5406,7 @@ index b10a4f8..6ee9786 100644
        if (models.length !== catalog.models.length) {
          this.logger.warn(
            { provider, discardedRows: catalog.models.length - models.length },
-@@ -1090,7 +1096,8 @@ export class ProviderSnapshotManager {
+@@ -1090,7 +1098,8 @@ export class ProviderSnapshotManager {
        transitions.push({ previous, current });
      }
      for (const transition of transitions) {
@@ -8121,6 +8278,24 @@ index a18c89a..a4b84d2 100644
    }
  }
  
+diff --git a/packages/server/src/server/daemon-config-store.ts b/packages/server/src/server/daemon-config-store.ts
+index e838742..4d0b869 100644
+--- a/packages/server/src/server/daemon-config-store.ts
++++ b/packages/server/src/server/daemon-config-store.ts
+@@ -1,3 +1,4 @@
++import { providerOverrideFor } from "./agent/provider-launch-config.js";
+ import {
+   loadPersistedConfig,
+   savePersistedConfigAsync,
+@@ -328,7 +329,7 @@ export function applyMutableProviderConfigToOverrides(
+ 
+   const nextOverrides: Record<string, ProviderOverride> = { ...baseOverrides };
+   for (const [providerId, providerConfig] of Object.entries(mutableProviders ?? {})) {
+-    const previousOverride = nextOverrides[providerId];
++    const previousOverride = providerOverrideFor(nextOverrides, providerId);
+     const parsedOverride = ProviderOverrideSchema.strip().parse(providerConfig);
+     nextOverrides[providerId] = {
+       ...previousOverride,
 diff --git a/packages/server/src/server/daemon-instance.ts b/packages/server/src/server/daemon-instance.ts
 index b3b07e7..bf28f2b 100644
 --- a/packages/server/src/server/daemon-instance.ts
@@ -9426,6 +9601,25 @@ index 4df58e1..a7e08ef 100644
      args,
      env,
    };
+diff --git a/packages/server/src/server/paseo-worktree-service.ts b/packages/server/src/server/paseo-worktree-service.ts
+index 1205554..f26b462 100644
+--- a/packages/server/src/server/paseo-worktree-service.ts
++++ b/packages/server/src/server/paseo-worktree-service.ts
+@@ -1,4 +1,4 @@
+-import type { PluginLifecycle } from "./plugins/lifecycle/index.js";
++import type { PluginLifecycleHooks } from "./plugins/lifecycle/index.js";
+ import { stat } from "node:fs/promises";
+ import { resolve } from "node:path";
+ 
+@@ -60,7 +60,7 @@ export interface AttemptFirstAgentBranchAutoNameResult {
+ }
+ 
+ export interface CreatePaseoWorktreeDeps extends CreateWorktreeCoreDeps {
+-  lifecycle?: Pick<PluginLifecycle, "wait" | "before">;
++  lifecycle?: Pick<PluginLifecycleHooks, "wait" | "beforeWorktreeCreate">;
+   workspaceGitService: WorkspaceGitService;
+   workspaceProvisioning: Pick<WorkspaceProvisioningService, "createWorkspaceForWorktree">;
+ }
 diff --git a/packages/server/src/server/persistence-hooks.ts b/packages/server/src/server/persistence-hooks.ts
 index e95743d..e01e9ef 100644
 --- a/packages/server/src/server/persistence-hooks.ts
@@ -9963,10 +10157,23 @@ index c454e7c..ffc87d4 100644
          return () => closeHandlers.delete(handler);
        },
 diff --git a/packages/server/src/server/plugins/index.ts b/packages/server/src/server/plugins/index.ts
-index 5dad547..8a01937 100644
+index 5dad547..3eee190 100644
 --- a/packages/server/src/server/plugins/index.ts
 +++ b/packages/server/src/server/plugins/index.ts
-@@ -7,6 +7,7 @@ import type { ProviderRegistration } from "@getpaseo/plugin/server/provider";
+@@ -1,5 +1,11 @@
+ import type { PluginAgentToolsRuntime } from "./agent-tools.js";
+-import type { PluginLifecycle } from "./lifecycle/index.js";
++import type { PluginHookEvents, PluginHookPayload } from "@getpaseo/plugin/server";
++import type {
++  PluginBeforeResults,
++  PluginLifecycle,
++  PluginLifecycleHooks,
++  PluginWireBeforeRequests,
++} from "./lifecycle/index.js";
+ import path from "node:path";
+ import { stat, rm } from "node:fs/promises";
+ import type pino from "pino";
+@@ -7,6 +13,7 @@ import type { ProviderRegistration } from "@getpaseo/plugin/server/provider";
  import {
    PluginIdSchema,
    type PluginLogEntry,
@@ -9974,7 +10181,7 @@ index 5dad547..8a01937 100644
    type PluginListItem,
    type PluginSource,
    type PluginSourceStatusItem,
-@@ -21,7 +22,7 @@ import { assertPluginCompatibility } from "@getpaseo/protocol/plugin-requirement
+@@ -21,7 +28,7 @@ import { assertPluginCompatibility } from "@getpaseo/protocol/plugin-requirement
  import { BUILTIN_PROVIDER_IDS } from "@getpaseo/protocol/provider-manifest";
  import type { DaemonConfigStore } from "../daemon-config-store.js";
  import { type ManagedPluginCandidate, ManagedPluginSources } from "./managed-source.js";
@@ -9983,10 +10190,11 @@ index 5dad547..8a01937 100644
  import { expandTilde } from "../../utils/path.js";
  import { runPluginBuild } from "./preparation.js";
  import { PluginRuntime } from "./runtime.js";
-@@ -83,6 +84,40 @@ function resolvePluginStatus(input: {
+@@ -83,8 +90,45 @@ function resolvePluginStatus(input: {
    return input.running ? "running" : "failed";
  }
  
+-export class PluginService {
 +// Built whole, in the key order of the earlier field-by-field assignments: scriptc cannot read or
 +// assign the optional fields of a PluginListItem after creation.
 +function buildPluginListItem(input: {
@@ -10021,10 +10229,145 @@ index 5dad547..8a01937 100644
 +  };
 +}
 +
- export class PluginService {
++export class PluginService implements PluginLifecycleHooks {
    private readonly runtime: PluginRuntimePort;
++  // The runtime this service created, typed as its class, or null when one is injected (tests).
++  // A scriptc binary cannot call the generic hooks (emit, before) through PluginRuntimePort.
++  private readonly ownRuntime: PluginRuntime | null;
    private readonly managedSources: ManagedPluginSources | null;
-@@ -247,36 +282,26 @@ export class PluginService {
+   private readonly builtinPluginIds: ReadonlySet<string>;
+   private readonly builtinPlugins: BuiltinPluginLoader;
+@@ -118,14 +162,19 @@ export class PluginService {
+       this.logger,
+       dependencies.usageAgents,
+     );
+-    this.runtime =
+-      dependencies.runtime ??
+-      new PluginRuntime(logger, daemonVersion, {
++    if (dependencies.runtime) {
++      this.runtime = dependencies.runtime;
++      this.ownRuntime = null;
++    } else {
++      const runtime = new PluginRuntime(logger, daemonVersion, {
+         settingsDirectory: dependencies.settingsDirectory,
+         onSettingsChanged: (pluginId, settingsId) => {
+           for (const listener of this.settingsListeners) listener(pluginId, settingsId);
+         },
+       });
++      this.runtime = runtime;
++      this.ownRuntime = runtime;
++    }
+     this.managedSources = dependencies.managedSources ?? null;
+     this.builtinPlugins = dependencies.builtinPlugins ?? new BuiltinPluginLoader(undefined, []);
+     this.builtinPluginIds = this.builtinPlugins.ids;
+@@ -137,9 +186,13 @@ export class PluginService {
+     });
+   }
+ 
+-  readonly emit: PluginLifecycle["emit"] = (name, event) => {
+-    this.runtime.emit?.(name, event);
+-  };
++  // emit, wait and before are methods, not fields holding functions: a scriptc binary cannot
++  // read a generic function stored on a class instance through an interface (Session's
++  // SessionPluginRuntime, the worktree and agent lifecycle dependencies).
++  emit<Name extends keyof PluginHookEvents>(name: Name, event: PluginHookEvents[Name]): void {
++    if (this.ownRuntime) this.ownRuntime.emit(name, event);
++    else this.runtime.emit?.(name, event);
++  }
+ 
+   subscribeSessionOpenChanges(listener: () => void): () => void {
+     return this.runtime.subscribeSessionOpenChanges?.(listener) ?? (() => {});
+@@ -169,20 +222,84 @@ export class PluginService {
+     return this.runtime.callTool(pluginId, pluginInstanceId, agent, name, input, signal);
+   };
+ 
+-  readonly wait: PluginLifecycle["wait"] = async (name, payload) => {
+-    await this.runtime.wait?.(name, payload);
+-  };
++  async wait(
++    name: "worktree.create.after",
++    payload: PluginHookPayload<"worktree.create.after">,
++  ): Promise<void> {
++    if (this.ownRuntime) await this.ownRuntime.wait(name, payload);
++    else await this.runtime.wait?.(name, payload);
++  }
+ 
+   async drainEvents(): Promise<void> {
+     await this.runtime.drainEvents?.();
+   }
+ 
+-  readonly before: PluginLifecycle["before"] = async (name, request) => {
++  beforeWorkspaceCreate(
++    request: PluginWireBeforeRequests["workspace.create.before"],
++  ): Promise<PluginBeforeResults["workspace.create.before"]> {
++    return this.before("workspace.create.before", request);
++  }
++
++  beforeWorktreeCreate(
++    request: PluginWireBeforeRequests["worktree.create.before"],
++  ): Promise<PluginBeforeResults["worktree.create.before"]> {
++    return this.before("worktree.create.before", request);
++  }
++
++  beforeAgentCreate(
++    request: PluginWireBeforeRequests["agent.create.before"],
++  ): Promise<PluginBeforeResults["agent.create.before"]> {
++    return this.before("agent.create.before", request);
++  }
++
++  beforeAgentOpen(
++    request: PluginWireBeforeRequests["agent.open.before"],
++  ): Promise<PluginBeforeResults["agent.open.before"]> {
++    return this.before("agent.open.before", request);
++  }
++
++  emitWorkspaceCreateAfter(event: PluginHookEvents["workspace.create.after"]): void {
++    this.emit("workspace.create.after", event);
++  }
++
++  emitAgentCreateAfter(event: PluginHookEvents["agent.create.after"]): void {
++    this.emit("agent.create.after", event);
++  }
++
++  emitAgentArchiveAfter(event: PluginHookEvents["agent.archive.after"]): void {
++    this.emit("agent.archive.after", event);
++  }
++
++  emitAgentCloseAfter(event: PluginHookEvents["agent.close.after"]): void {
++    this.emit("agent.close.after", event);
++  }
++
++  emitAgentTurnBefore(event: PluginHookEvents["agent.turn.before"]): void {
++    this.emit("agent.turn.before", event);
++  }
++
++  emitAgentTurnAfter(event: PluginHookEvents["agent.turn.after"]): void {
++    this.emit("agent.turn.after", event);
++  }
++
++  emitAgentPermissionBefore(event: PluginHookEvents["agent.permission.before"]): void {
++    this.emit("agent.permission.before", event);
++  }
++
++  emitAgentPermissionAfter(event: PluginHookEvents["agent.permission.after"]): void {
++    this.emit("agent.permission.after", event);
++  }
++
++  async before<Name extends keyof PluginWireBeforeRequests>(
++    name: Name,
++    request: PluginWireBeforeRequests[Name],
++  ): Promise<PluginBeforeResults[Name]> {
++    if (this.ownRuntime) return this.ownRuntime.before(name, request);
+     if (this.runtime.before) {
+       return this.runtime.before(name, request);
+     }
+     return request;
+-  };
++  }
+ 
+   subscribeSettings(listener: (pluginId: string, settingsId: string) => void): () => void {
+     this.settingsListeners.add(listener);
+@@ -247,36 +364,26 @@ export class PluginService {
      const plugins = await Promise.all(
        Object.entries(config.plugins ?? {}).map(async ([id, source]) => {
          const enabled = source.enabled !== false;
@@ -10280,6 +10623,100 @@ index a80a8c5..0000000
 -      });
 -  }
 -}
+diff --git a/packages/server/src/server/plugins/lifecycle/index.ts b/packages/server/src/server/plugins/lifecycle/index.ts
+index d4f58cc..5bf7562 100644
+--- a/packages/server/src/server/plugins/lifecycle/index.ts
++++ b/packages/server/src/server/plugins/lifecycle/index.ts
+@@ -138,6 +138,38 @@ export interface PluginLifecycle {
+   ): Promise<PluginBeforeResults[Name]>;
+ }
+ 
++/**
++ * The hooks Paseo's own services call, one method per hook, none generic. A scriptc binary
++ * cannot call a generic method through an interface, so services take this interface rather
++ * than PluginLifecycle; PluginService implements it with its generic before and emit.
++ */
++export interface PluginLifecycleHooks {
++  wait(
++    name: "worktree.create.after",
++    payload: PluginHookPayload<"worktree.create.after">,
++  ): Promise<void>;
++  beforeWorkspaceCreate(
++    request: PluginWireBeforeRequests["workspace.create.before"],
++  ): Promise<PluginBeforeResults["workspace.create.before"]>;
++  beforeWorktreeCreate(
++    request: PluginWireBeforeRequests["worktree.create.before"],
++  ): Promise<PluginBeforeResults["worktree.create.before"]>;
++  beforeAgentCreate(
++    request: PluginWireBeforeRequests["agent.create.before"],
++  ): Promise<PluginBeforeResults["agent.create.before"]>;
++  beforeAgentOpen(
++    request: PluginWireBeforeRequests["agent.open.before"],
++  ): Promise<PluginBeforeResults["agent.open.before"]>;
++  emitWorkspaceCreateAfter(event: PluginHookEvents["workspace.create.after"]): void;
++  emitAgentCreateAfter(event: PluginHookEvents["agent.create.after"]): void;
++  emitAgentArchiveAfter(event: PluginHookEvents["agent.archive.after"]): void;
++  emitAgentCloseAfter(event: PluginHookEvents["agent.close.after"]): void;
++  emitAgentTurnBefore(event: PluginHookEvents["agent.turn.before"]): void;
++  emitAgentTurnAfter(event: PluginHookEvents["agent.turn.after"]): void;
++  emitAgentPermissionBefore(event: PluginHookEvents["agent.permission.before"]): void;
++  emitAgentPermissionAfter(event: PluginHookEvents["agent.permission.after"]): void;
++}
++
+ export function validateBeforeRequest<Name extends keyof PluginWireBeforeRequests>(
+   name: Name,
+   value: unknown,
+@@ -174,37 +206,43 @@ export function describeHookAgent(agent: {
+ }
+ 
+ export function publishAgentStream(
+-  lifecycle: PluginLifecycle,
++  lifecycle: Pick<
++    PluginLifecycleHooks,
++    | "emitAgentTurnBefore"
++    | "emitAgentTurnAfter"
++    | "emitAgentPermissionBefore"
++    | "emitAgentPermissionAfter"
++  >,
+   agent: PluginHookAgent,
+   event: AgentStreamEvent,
+ ): void {
+   if (event.type === "turn_started") {
+-    lifecycle.emit("agent.turn.before", { agent, turnId: event.turnId ?? null });
++    lifecycle.emitAgentTurnBefore({ agent, turnId: event.turnId ?? null });
+   } else if (event.type === "turn_completed") {
+-    lifecycle.emit("agent.turn.after", {
++    lifecycle.emitAgentTurnAfter({
+       agent,
+       turnId: event.turnId ?? null,
+       timeline: [],
+       outcome: { kind: "completed" },
+     });
+   } else if (event.type === "turn_failed") {
+-    lifecycle.emit("agent.turn.after", {
++    lifecycle.emitAgentTurnAfter({
+       agent,
+       turnId: event.turnId ?? null,
+       timeline: [],
+       outcome: { kind: "failed", error: { message: event.error, code: event.code } },
+     });
+   } else if (event.type === "turn_canceled") {
+-    lifecycle.emit("agent.turn.after", {
++    lifecycle.emitAgentTurnAfter({
+       agent,
+       turnId: event.turnId ?? null,
+       timeline: [],
+       outcome: { kind: "canceled", reason: event.reason },
+     });
+   } else if (event.type === "permission_requested") {
+-    lifecycle.emit("agent.permission.before", { agent, request: event.request });
++    lifecycle.emitAgentPermissionBefore({ agent, request: event.request });
+   } else if (event.type === "permission_resolved") {
+-    lifecycle.emit("agent.permission.after", {
++    lifecycle.emitAgentPermissionAfter({
+       agent,
+       requestId: event.requestId,
+       resolution: event.resolution,
 diff --git a/packages/server/src/server/plugins/parent-ipc.d.ts b/packages/server/src/server/plugins/parent-ipc.d.ts
 new file mode 100644
 index 0000000..885de73
@@ -10952,10 +11389,15 @@ index ef93a27..d659484 100644
    );
    proxyReq.on("error", (err) => {
 diff --git a/packages/server/src/server/session.ts b/packages/server/src/server/session.ts
-index efa0c9e..d3a0784 100644
+index efa0c9e..9a46364 100644
 --- a/packages/server/src/server/session.ts
 +++ b/packages/server/src/server/session.ts
-@@ -370,7 +370,11 @@ function agentDirectorySearchQuery(request: AgentDirectoryRequestMessage): strin
+@@ -1,3 +1,4 @@
++import type { PluginLifecycleHooks } from "./plugins/lifecycle/index.js";
+ import { type WorkspaceRuntimeStore } from "./workspace-runtime-store/index.js";
+ import type { AgentMessageDelivery } from "./agent/agent-messages/index.js";
+ import { AgentDirectory } from "./agent/directory.js";
+@@ -370,7 +371,11 @@ function agentDirectorySearchQuery(request: AgentDirectoryRequestMessage): strin
    return request.search?.trim() ?? "";
  }
  type FetchAgentsRequestFilter = NonNullable<FetchAgentsRequestMessage["filter"]>;
@@ -10968,7 +11410,7 @@ index efa0c9e..d3a0784 100644
  type FetchAgentsResponsePayload = Extract<
    SessionOutboundMessage,
    { type: "fetch_agents_response" }
-@@ -406,6 +410,14 @@ type WorkspaceUpdatePayload = Extract<
+@@ -406,6 +411,14 @@ type WorkspaceUpdatePayload = Extract<
    SessionOutboundMessage,
    { type: "workspace_update" }
  >["payload"];
@@ -10983,16 +11425,13 @@ index efa0c9e..d3a0784 100644
  interface WorkspaceUpdatesSubscriptionState {
    subscriptionId: string;
    owner: OwnedSubscription;
-@@ -441,6 +453,52 @@ const nodeSessionFileSystem: SessionFileSystem = {
+@@ -441,6 +454,49 @@ const nodeSessionFileSystem: SessionFileSystem = {
  // Stub types for features under development (modules not yet available)
  type AgentMcpTransportFactory = () => Promise<unknown>;
  
-+// An interface over PluginLifecycle's methods: scriptc cannot call the generic `before` through
-+// a property typed as PluginLifecycle["before"].
-+export interface SessionPluginRuntime extends Pick<
-+  import("./plugins/lifecycle/index.js").PluginLifecycle,
-+  "wait" | "before" | "emit"
-+> {
++// PluginLifecycleHooks, not PluginLifecycle: a scriptc binary cannot call a generic method
++// through an interface.
++export interface SessionPluginRuntime extends PluginLifecycleHooks {
 +  listPlugins(): Promise<import("@getpaseo/protocol/messages").PluginListItem[]>;
 +  getLogs(pluginId: string): import("@getpaseo/protocol/messages").PluginLogEntry[];
 +  installDirectory(input: {
@@ -11036,7 +11475,7 @@ index efa0c9e..d3a0784 100644
  export interface SessionOptions {
    connectedHosts?: ConnectedHosts;
    sourceId?: string;
-@@ -485,49 +543,7 @@ export interface SessionOptions {
+@@ -485,49 +541,7 @@ export interface SessionOptions {
    workspaceRuntimeStore: WorkspaceRuntimeStore;
    workspaceAutoName: WorkspaceAutoName;
    daemonConfigStore: DaemonConfigStore;
@@ -11087,7 +11526,7 @@ index efa0c9e..d3a0784 100644
    orchestrationSkills?: import("./orchestration-skills/index.js").OrchestrationSkills;
    mcpBaseUrl?: string | null;
    stt: Resolvable<SpeechToTextProvider | null>;
-@@ -594,10 +610,14 @@ function parseClientCapabilities(
+@@ -594,10 +608,14 @@ function parseClientCapabilities(
    if (!capabilities) {
      return new Set();
    }
@@ -11104,7 +11543,7 @@ index efa0c9e..d3a0784 100644
        result.push(key as ClientCapability);
      }
    }
-@@ -1188,10 +1208,10 @@ export class Session {
+@@ -1188,10 +1206,10 @@ export class Session {
        emit: (message) => this.emit(message),
        emitAgentRemove: (agentId) => this.agentUpdates.removeAgent(agentId),
        emitWorkspaceUpdatesForWorkspaceIds: (workspaceIds) =>
@@ -11118,7 +11557,7 @@ index efa0c9e..d3a0784 100644
        killTerminalsForWorkspace: (workspaceId) =>
          this.terminalController.killTerminalsForWorkspace(workspaceId),
        logger: this.sessionLogger,
-@@ -1504,15 +1524,15 @@ export class Session {
+@@ -1504,15 +1522,15 @@ export class Session {
      workspaceIds: Iterable<string>,
      archivingAt: string,
    ): void {
@@ -11137,7 +11576,7 @@ index efa0c9e..d3a0784 100644
    }
  
    async syncWorkspaceGitObserversForExternalWorkspaceIds(
-@@ -1819,7 +1839,7 @@ export class Session {
+@@ -1819,7 +1837,7 @@ export class Session {
      )
        return;
      const descriptorsByWorkspaceId = await this.buildWorkspaceDescriptorMap({
@@ -11146,7 +11585,7 @@ index efa0c9e..d3a0784 100644
        includeGitData: false,
      });
      const descriptor = descriptorsByWorkspaceId.get(mutation.workspaceId);
-@@ -2386,7 +2406,9 @@ export class Session {
+@@ -2386,7 +2404,9 @@ export class Session {
      let initial: WorkspaceSetupSnapshot | null = null;
      await handleWorkspaceSetupStatusRequestMessage(
        {
@@ -11157,7 +11596,7 @@ index efa0c9e..d3a0784 100644
          getWorkspace: (id) => this.workspaceRegistry.get(id),
          emit: (message) => {
            if (message.type === "workspace_setup_status_response")
-@@ -2548,6 +2570,22 @@ export class Session {
+@@ -2548,6 +2568,22 @@ export class Session {
      }
    }
  
@@ -11180,7 +11619,7 @@ index efa0c9e..d3a0784 100644
    private dispatchPluginMessage(msg: SessionInboundMessage): Promise<void> | undefined {
      if (msg.type === "plugin.list.request") {
        return (this.pluginRuntime?.listPlugins() ?? Promise.resolve([])).then((plugins) => {
-@@ -2608,17 +2646,14 @@ export class Session {
+@@ -2608,17 +2644,14 @@ export class Session {
        });
      }
      if (msg.type === "plugin.catalog.get.request") {
@@ -11204,7 +11643,7 @@ index efa0c9e..d3a0784 100644
        });
        return undefined;
      }
-@@ -3458,7 +3493,7 @@ export class Session {
+@@ -3458,7 +3491,7 @@ export class Session {
          }
        }
  
@@ -11213,7 +11652,7 @@ index efa0c9e..d3a0784 100644
  
        this.emit({
          type: "agent.detach.response",
-@@ -3485,9 +3520,11 @@ export class Session {
+@@ -3485,9 +3518,11 @@ export class Session {
    }
  
    private async handleCloseItemsRequest(msg: CloseItemsRequest): Promise<void> {
@@ -11227,7 +11666,7 @@ index efa0c9e..d3a0784 100644
      const agents = [];
      for (let i = 0; i < archiveResults.length; i += 1) {
        const result = archiveResults[i];
-@@ -5301,10 +5338,10 @@ export class Session {
+@@ -5301,10 +5336,10 @@ export class Session {
          archiveWorkspaceRecord: (workspaceId) => this.archiveWorkspaceRecord(workspaceId),
          emit: (message) => this.emit(message),
          emitWorkspaceUpdatesForWorkspaceIds: (workspaceIds) =>
@@ -11241,7 +11680,7 @@ index efa0c9e..d3a0784 100644
          killTerminalsForWorkspace: (workspaceId) =>
            this.terminalController.killTerminalsForWorkspace(workspaceId),
          sessionLogger: this.sessionLogger,
-@@ -5635,10 +5672,7 @@ export class Session {
+@@ -5635,10 +5670,7 @@ export class Session {
      };
    }
  
@@ -11253,7 +11692,7 @@ index efa0c9e..d3a0784 100644
      validKeys: FETCH_AGENTS_SORT_KEYS,
      defaultSort: [{ key: "updated_at", direction: "desc" }],
      label: "fetch_agents",
-@@ -5662,7 +5696,7 @@ export class Session {
+@@ -5662,7 +5694,7 @@ export class Session {
      },
    });
  
@@ -11262,7 +11701,7 @@ index efa0c9e..d3a0784 100644
      try {
        return this.agentsPager.decode(token, sort);
      } catch (error) {
-@@ -5839,17 +5873,17 @@ export class Session {
+@@ -5839,17 +5871,17 @@ export class Session {
      return this.describeWorkspaceRecord(input.workspace, input.projectRecord);
    }
  
@@ -11283,7 +11722,7 @@ index efa0c9e..d3a0784 100644
    }): Promise<Map<string, WorkspaceDescriptorPayload>> {
      return this.workspaceDirectory.buildDescriptorMap(options);
    }
-@@ -6101,7 +6135,7 @@ export class Session {
+@@ -6101,7 +6133,7 @@ export class Session {
    }
  
    private async emitWorkspaceUpdatesForWorkspaceIds(
@@ -11292,7 +11731,16 @@ index efa0c9e..d3a0784 100644
      options?: WorkspaceUpdateOptions,
    ): Promise<void> {
      const uniqueWorkspaceIds = new Set(workspaceIds);
-@@ -7525,7 +7559,9 @@ export class Session {
+@@ -6869,7 +6901,7 @@ export class Session {
+     // and must not rerun hooks or compare their potentially changing output.
+     if (this.pluginRuntime) {
+       const { type, requestId, ...input } = request;
+-      const transformed = await this.pluginRuntime.before("workspace.create.before", input);
++      const transformed = await this.pluginRuntime.beforeWorkspaceCreate(input);
+       creationRequest = { ...transformed, type, requestId };
+     }
+     return creationRequest.source.kind === "directory"
+@@ -7525,7 +7557,9 @@ export class Session {
      return handleWorkspaceSetupStatusRequestMessage(
        {
          emit: (message) => this.emit(message),
@@ -11303,7 +11751,7 @@ index efa0c9e..d3a0784 100644
          getWorkspace: (workspaceId) => this.workspaceRegistry.get(workspaceId),
        },
        request,
-@@ -7585,10 +7621,11 @@ export class Session {
+@@ -7585,10 +7619,11 @@ export class Session {
            listActiveWorkspaces: () => this.listActiveWorkspaceRefs(),
            archiveWorkspaceRecord: (workspaceId) => this.archiveWorkspaceRecord(workspaceId),
            emitWorkspaceUpdatesForWorkspaceIds: (workspaceIds) =>
@@ -11318,7 +11766,7 @@ index efa0c9e..d3a0784 100644
            assertWorkspaceAutomationAllowed: (workspaceId) =>
              assertWorkspaceAutomationAllowedForWorkspace(this.workspaceRegistry, workspaceId),
            killTerminalsForWorkspace: (workspaceId) =>
-@@ -8161,6 +8198,29 @@ export class Session {
+@@ -8161,6 +8196,29 @@ export class Session {
          },
        );
        const rows = timeline.rows.filter((row) => this.supportsTimelineItem(row.item, source));
@@ -11348,7 +11796,7 @@ index efa0c9e..d3a0784 100644
        this.emitForSource(
          {
            type: "agent.provider_subagents.timeline.get.response",
-@@ -8182,25 +8242,7 @@ export class Session {
+@@ -8182,25 +8240,7 @@ export class Session {
              window: timeline.window,
              hasOlder: supportsProjection && timeline.hasOlder,
              hasNewer: supportsProjection && timeline.hasNewer,
@@ -11508,6 +11956,57 @@ index cddd905..431b28c 100644
    return resolvePackageRootFrom(fileURLToPath(import.meta.url), "@getpaseo/server");
  }
  
+diff --git a/packages/server/src/server/session/owned-subscriptions/index.ts b/packages/server/src/server/session/owned-subscriptions/index.ts
+index c17e582..96c2ce0 100644
+--- a/packages/server/src/server/session/owned-subscriptions/index.ts
++++ b/packages/server/src/server/session/owned-subscriptions/index.ts
+@@ -16,13 +16,22 @@ interface DeliveryOwner {
+   source: Source;
+   active: boolean;
+ }
+-interface RequestOwner extends DeliveryOwner {
+-  scope: object;
+-  request: SessionInboundMessage;
++// The values AsyncLocalStorage holds are class instances, not plain records: in a scriptc
++// binary getStore() returns a copy of a plain record, and delivery compares owners and their
++// sources by identity and reads `active` after it changes.
++class RequestOwner implements DeliveryOwner {
++  active = true;
++  constructor(
++    readonly scope: object,
++    readonly source: Source,
++    readonly request: SessionInboundMessage,
++  ) {}
+ }
+-interface ProjectionOwner {
+-  scope: object;
+-  source: object;
++class ProjectionOwner {
++  constructor(
++    readonly scope: object,
++    readonly source: object,
++  ) {}
+ }
+ interface RetainedOwner extends DeliveryOwner {
+   cancellation: AbortController;
+@@ -125,7 +134,7 @@ export class SessionDelivery {
+ 
+   forSource<T>(source: object, project: () => T): T {
+     if (this.closing) throw new Error("Session delivery is closed");
+-    return projectionSource.run({ scope: this.scope, source }, project);
++    return projectionSource.run(new ProjectionOwner(this.scope, source), project);
+   }
+ 
+   hasLegacySources(): boolean {
+@@ -207,7 +216,7 @@ export class SessionDelivery {
+     socket ??= this.defaultSource;
+     if (!this.sources.has(socket)) this.attach(socket, false);
+     const source = this.sources.get(socket)!;
+-    const owner: RequestOwner = { scope: this.scope, source, request, active: true };
++    const owner = new RequestOwner(this.scope, source, request);
+     try {
+       await requests.run(owner, run);
+     } finally {
 diff --git a/packages/server/src/server/session/owned-subscriptions/replies.ts b/packages/server/src/server/session/owned-subscriptions/replies.ts
 index cf8a44b..3fb5b0e 100644
 --- a/packages/server/src/server/session/owned-subscriptions/replies.ts
@@ -11591,10 +12090,40 @@ index d657c63..34ff541 100644
      for (const workspace of workspaces) {
        syncObserver(workspace.workspaceDirectory, {
          isGit: workspace.workspaceKind !== "directory",
+diff --git a/packages/server/src/server/session/workspace-provisioning/workspace-provisioning-service.test.ts b/packages/server/src/server/session/workspace-provisioning/workspace-provisioning-service.test.ts
+index c93e535..67ac9d0 100644
+--- a/packages/server/src/server/session/workspace-provisioning/workspace-provisioning-service.test.ts
++++ b/packages/server/src/server/session/workspace-provisioning/workspace-provisioning-service.test.ts
+@@ -1,3 +1,4 @@
++import { pluginHooksFrom } from "../../test-utils/plugin-hooks.js";
+ import os from "node:os";
+ import path from "node:path";
+ import { mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync } from "node:fs";
+@@ -153,12 +154,12 @@ test("background workspace creation preserves hooks, inheritance and durable vis
+     workspaceGitService: gitService(),
+     isDirectory,
+     logger,
+-    lifecycle: {
++    lifecycle: pluginHooksFrom({
+       emit: (name) => {
+         events.push(name);
+       },
+       before: async (_name, request) => request,
+-    },
++    }),
+   });
+   const parent = await provisioning.createWorkspaceForDirectory(dir, null, undefined, {
+     background: true,
 diff --git a/packages/server/src/server/session/workspace-provisioning/workspace-provisioning-service.ts b/packages/server/src/server/session/workspace-provisioning/workspace-provisioning-service.ts
-index 08d7b93..e77b933 100644
+index 08d7b93..b1e9e77 100644
 --- a/packages/server/src/server/session/workspace-provisioning/workspace-provisioning-service.ts
 +++ b/packages/server/src/server/session/workspace-provisioning/workspace-provisioning-service.ts
+@@ -1,4 +1,4 @@
+-import type { PluginLifecycle } from "../../plugins/lifecycle/index.js";
++import type { PluginLifecycleHooks } from "../../plugins/lifecycle/index.js";
+ import { describeHookWorkspace } from "../../plugins/lifecycle/index.js";
+ import { basename, resolve } from "node:path";
+ import type { ProjectCheckoutLitePayload } from "@getpaseo/protocol/messages";
 @@ -20,6 +20,7 @@ import type { CreatePaseoWorktreeWorkflowResult } from "../../worktree-session.j
  import { deriveProjectKey } from "../../project-key.js";
  import { areEquivalentPaths, createRealpathAwarePathMatcher } from "../../../utils/path.js";
@@ -11618,6 +12147,15 @@ index 08d7b93..e77b933 100644
    findOrCreateWorkspaceForDirectory(cwd: string): Promise<PersistedWorkspaceRecord>;
    resolveOrCreateWorkspaceIdForCreateAgent(input: ResolveOrCreateWorkspaceIdInput): Promise<string>;
    createWorkspaceForDirectory(
+@@ -106,7 +108,7 @@ export function createWorkspaceProvisioningService(deps: {
+   workspaceGitService: Pick<WorkspaceGitService, "getCheckout" | "getSnapshot">;
+   isDirectory: (path: string) => Promise<boolean>;
+   logger: Logger;
+-  lifecycle?: PluginLifecycle;
++  lifecycle?: PluginLifecycleHooks;
+ }): WorkspaceProvisioningService {
+   const { serverId, workspaceRegistry, projectRegistry, workspaceGitService, logger } = deps;
+ 
 @@ -125,10 +127,10 @@ export function createWorkspaceProvisioningService(deps: {
      return checkout;
    }
@@ -11640,7 +12178,7 @@ index 08d7b93..e77b933 100644
 +    // Narrowed first: scriptc has no optional method calls on an optional field.
 +    const lifecycle = deps.lifecycle;
 +    if (!lifecycle) return;
-+    lifecycle.emit("workspace.create.after", {
++    lifecycle.emitWorkspaceCreateAfter({
        workspace: describeHookWorkspace(workspace),
      });
    }
@@ -12628,6 +13166,54 @@ index 6a143ba..b74b2c0 100644
            } catch (err) {
              emitter.emit("error", err);
            } finally {
+diff --git a/packages/server/src/server/test-utils/plugin-hooks.ts b/packages/server/src/server/test-utils/plugin-hooks.ts
+new file mode 100644
+index 0000000..107ecc5
+--- /dev/null
++++ b/packages/server/src/server/test-utils/plugin-hooks.ts
+@@ -0,0 +1,42 @@
++import type { PluginHookEvents } from "@getpaseo/plugin/server";
++import type {
++  PluginBeforeResults,
++  PluginLifecycle,
++  PluginLifecycleHooks,
++  PluginWireBeforeRequests,
++} from "../plugins/lifecycle/index.js";
++
++/**
++ * PluginLifecycleHooks over a fake written against PluginLifecycle's generic before, emit and
++ * wait: each per-hook method calls the fake with that hook's name. A missing before returns
++ * the request unchanged, as PluginService does without plugins.
++ */
++export function pluginHooksFrom(fake: Partial<PluginLifecycle>): PluginLifecycleHooks {
++  function before<Name extends keyof PluginWireBeforeRequests>(
++    name: Name,
++    request: PluginWireBeforeRequests[Name],
++  ): Promise<PluginBeforeResults[Name]> {
++    return fake.before ? fake.before(name, request) : Promise.resolve(request);
++  }
++  function emit<Name extends keyof PluginHookEvents>(
++    name: Name,
++    event: PluginHookEvents[Name],
++  ): void {
++    fake.emit?.(name, event);
++  }
++  return {
++    wait: (name, payload) => (fake.wait ? fake.wait(name, payload) : Promise.resolve()),
++    beforeWorkspaceCreate: (request) => before("workspace.create.before", request),
++    beforeWorktreeCreate: (request) => before("worktree.create.before", request),
++    beforeAgentCreate: (request) => before("agent.create.before", request),
++    beforeAgentOpen: (request) => before("agent.open.before", request),
++    emitWorkspaceCreateAfter: (event) => emit("workspace.create.after", event),
++    emitAgentCreateAfter: (event) => emit("agent.create.after", event),
++    emitAgentArchiveAfter: (event) => emit("agent.archive.after", event),
++    emitAgentCloseAfter: (event) => emit("agent.close.after", event),
++    emitAgentTurnBefore: (event) => emit("agent.turn.before", event),
++    emitAgentTurnAfter: (event) => emit("agent.turn.after", event),
++    emitAgentPermissionBefore: (event) => emit("agent.permission.before", event),
++    emitAgentPermissionAfter: (event) => emit("agent.permission.after", event),
++  };
++}
 diff --git a/packages/server/src/server/utils/diff-highlighter.ts b/packages/server/src/server/utils/diff-highlighter.ts
 index e3a0460..13d9978 100644
 --- a/packages/server/src/server/utils/diff-highlighter.ts
@@ -12778,7 +13364,7 @@ index e22e5bf..a2c7d99 100644
  
  vi.mock("./session.js", () => ({
 diff --git a/packages/server/src/server/websocket-server.ts b/packages/server/src/server/websocket-server.ts
-index 43b7153..6c756b4 100644
+index 43b7153..61fa364 100644
 --- a/packages/server/src/server/websocket-server.ts
 +++ b/packages/server/src/server/websocket-server.ts
 @@ -588,26 +588,27 @@ export class VoiceAssistantWebSocketServer {
@@ -12870,16 +13456,41 @@ index 43b7153..6c756b4 100644
      message: WSOutboundMessage,
      reportRejection = false,
    ): void {
-@@ -1239,7 +1242,7 @@ export class VoiceAssistantWebSocketServer {
+@@ -1238,15 +1241,20 @@ export class VoiceAssistantWebSocketServer {
+     }
    }
  
++  // sessionMessage is the session message as the session sent it. Delivery recognises the
++  // messages it authorised by identity, and in a scriptc binary a message read back out of the
++  // WSOutboundMessage wrapper can be a copy.
    private prepareJsonDelivery(
 -    sockets: Iterable<WebSocketLike>,
 +    sockets: readonly WebSocketLike[],
      message: WSOutboundMessage,
      reportRejection: boolean,
++    sessionMessage?: SessionOutboundMessage,
    ): { sockets: WebSocketLike[]; payload: string; bytes: number } | null {
-@@ -1452,7 +1455,7 @@ export class VoiceAssistantWebSocketServer {
+     const writableSockets = [...sockets].filter((ws) => {
+       if (
+         message.type === "session" &&
+-        this.sessions.get(ws)?.session.delivery.permits(ws, message.message) !== true
++        this.sessions.get(ws)?.session.delivery.permits(ws, sessionMessage ?? message.message) !==
++          true
+       ) {
+         this.incrementRuntimeCounter("applicationJsonRejected");
+         // Legacy broadcasts intentionally exclude modern sockets. Targeted failures are bugs.
+@@ -1342,8 +1350,9 @@ export class VoiceAssistantWebSocketServer {
+   private async sendMessageToClientAndWait(
+     ws: WebSocketLike,
+     message: WSOutboundMessage,
++    sessionMessage?: SessionOutboundMessage,
+   ): Promise<void> {
+-    const prepared = this.prepareJsonDelivery([ws], message, true);
++    const prepared = this.prepareJsonDelivery([ws], message, true, sessionMessage);
+     if (!prepared) throw new Error("Source message delivery unavailable");
+     try {
+       await this.sendSocketFrame(ws, prepared.payload, prepared.bytes, true);
+@@ -1452,7 +1461,7 @@ export class VoiceAssistantWebSocketServer {
    }
  
    private sendToConnection(connection: SessionConnection, message: WSOutboundMessage): void {
@@ -12888,7 +13499,7 @@ index 43b7153..6c756b4 100644
    }
  
    private sendBinaryToConnection(connection: SessionConnection, frame: Uint8Array): void {
-@@ -1510,7 +1513,7 @@ export class VoiceAssistantWebSocketServer {
+@@ -1510,7 +1519,7 @@ export class VoiceAssistantWebSocketServer {
        }
      }, HELLO_TIMEOUT_MS);
      pending.helloTimeout = timeout;
@@ -12897,7 +13508,20 @@ index 43b7153..6c756b4 100644
  
      this.pendingConnections.set(ws, pending);
      this.incrementRuntimeCounter("connectedAwaitingHello");
-@@ -2750,7 +2753,8 @@ export class VoiceAssistantWebSocketServer {
+@@ -1559,7 +1568,11 @@ export class VoiceAssistantWebSocketServer {
+         if (!connection || !connection.sockets.has(source as WebSocketLike)) {
+           return;
+         }
+-        await this.sendMessageToClientAndWait(source as WebSocketLike, wrapSessionMessage(msg));
++        await this.sendMessageToClientAndWait(
++          source as WebSocketLike,
++          wrapSessionMessage(msg),
++          msg,
++        );
+       },
+       onBinaryMessage: (frame) => {
+         if (!connection) {
+@@ -2750,7 +2763,8 @@ export class VoiceAssistantWebSocketServer {
    }
  
    private collectSessionRuntimeMetrics(): WebSocketRuntimeMetrics {
@@ -13483,7 +14107,7 @@ index 5333da8..2aa850f 100644
  
  function isMissingPathError(error: unknown): boolean {
 diff --git a/packages/server/src/server/workspace-registry.ts b/packages/server/src/server/workspace-registry.ts
-index 61fcb4f..e64dfe6 100644
+index 61fcb4f..d72725c 100644
 --- a/packages/server/src/server/workspace-registry.ts
 +++ b/packages/server/src/server/workspace-registry.ts
 @@ -180,7 +180,10 @@ type RegistryRecord = PersistedProjectRecord | PersistedWorkspaceRecord;
@@ -13554,6 +14178,27 @@ index 61fcb4f..e64dfe6 100644
        for (const record of parsed) records.set(this.getId(record), record);
        return parsed;
      });
+@@ -403,7 +408,7 @@ export class FileBackedProjectRegistry
+     this.allocationQueue = new Promise<void>((resolve) => (release = resolve));
+     await previous;
+     try {
+-      const active = (await this.list())
++      const candidates = (await this.list())
+         .filter(
+           (project) => !project.archivedAt && areEquivalentPaths(project.rootPath, input.rootPath),
+         )
+@@ -411,7 +416,10 @@ export class FileBackedProjectRegistry
+           (left, right) =>
+             Date.parse(left.createdAt) - Date.parse(right.createdAt) ||
+             left.projectId.localeCompare(right.projectId),
+-        )[0];
++        );
++      // Not [0] of a possibly empty list: in the native daemon the read is checked against the
++      // record type and undefined fails.
++      const active = candidates.length > 0 ? candidates[0] : undefined;
+       if (active) {
+         if (active.kind === input.kind && active.projectKey === (input.projectKey ?? null))
+           return active;
 diff --git a/packages/server/src/server/worktree-branch-name-generator.ts b/packages/server/src/server/worktree-branch-name-generator.ts
 index 02557ab..a3b3903 100644
 --- a/packages/server/src/server/worktree-branch-name-generator.ts
@@ -13611,6 +14256,63 @@ index 02557ab..a3b3903 100644
      return {
        title: result.title.trim() || null,
        branch: result.branch.trim() || null,
+diff --git a/packages/server/src/server/worktree-core.posix.test.ts b/packages/server/src/server/worktree-core.posix.test.ts
+index 7a7a342..60ffac0 100644
+--- a/packages/server/src/server/worktree-core.posix.test.ts
++++ b/packages/server/src/server/worktree-core.posix.test.ts
+@@ -1,5 +1,6 @@
+ // POSIX-only: git worktree reuse fixtures
+ /* eslint-disable max-nested-callbacks */
++import { pluginHooksFrom } from "./test-utils/plugin-hooks.js";
+ import { execFileSync, spawnSync } from "node:child_process";
+ import {
+   mkdirSync,
+@@ -513,12 +514,12 @@ describe.skipIf(isPlatform("win32"))("worktree-core POSIX-only", () => {
+         { cwd: repoDir, githubPrNumber: 123, refName: "feature/review-pr", paseoHome },
+         {
+           ...deps,
+-          lifecycle: {
++          lifecycle: pluginHooksFrom({
+             before: async (name, request) => {
+               requests.push(request);
+               return validateBeforeResult(name, validateBeforeRequest(name, request), request);
+             },
+-          },
++          }),
+         },
+       );
+       expect(requests).toEqual([
+diff --git a/packages/server/src/server/worktree-core.ts b/packages/server/src/server/worktree-core.ts
+index cc6c9fd..9d19e2e 100644
+--- a/packages/server/src/server/worktree-core.ts
++++ b/packages/server/src/server/worktree-core.ts
+@@ -1,5 +1,5 @@
+ import type { PluginWorktreeCreateRequest } from "@getpaseo/plugin/server";
+-import type { PluginLifecycle } from "./plugins/lifecycle/index.js";
++import type { PluginLifecycleHooks } from "./plugins/lifecycle/index.js";
+ import { createNameId } from "mnemonic-id";
+ 
+ import type { ForgeService } from "../services/forge-service.js";
+@@ -34,7 +34,7 @@ export interface CreateWorktreeCoreInput {
+ }
+ 
+ export interface CreateWorktreeCoreDeps {
+-  lifecycle?: Pick<PluginLifecycle, "before">;
++  lifecycle?: Pick<PluginLifecycleHooks, "beforeWorktreeCreate">;
+   github: ForgeService;
+   workspaceGitService?: Pick<
+     WorkspaceGitService,
+@@ -134,9 +134,7 @@ async function createWorktreeCoreWithPriority(
+     slug: normalizedSlug,
+     path: defaultPath,
+   });
+-  const transformed = deps.lifecycle
+-    ? await deps.lifecycle.before("worktree.create.before", request)
+-    : request;
++  const transformed = deps.lifecycle ? await deps.lifecycle.beforeWorktreeCreate(request) : request;
+   normalizedSlug = validateWorktreeSlug(transformed.slug);
+   intent = creationIntentFromRequest(transformed, intent);
+ 
 diff --git a/packages/server/src/server/worktree-session.ts b/packages/server/src/server/worktree-session.ts
 index 1cbad93..1ab3473 100644
 --- a/packages/server/src/server/worktree-session.ts
@@ -19560,112 +20262,6 @@ index 1c7a5c3..3d2fced 100644
    ],
    "exclude": [
      "node_modules",
-diff --git a/packages/server/zzprobe-md/md.full.ts b/packages/server/zzprobe-md/md.full.ts
-new file mode 100644
-index 0000000..66a8e6b
---- /dev/null
-+++ b/packages/server/zzprobe-md/md.full.ts
-@@ -0,0 +1,53 @@
-+import "../../../../../native/sherpa/sherpa-onnx-ffi.js";
-+import "@agentclientprotocol/sdk";
-+import "@agentclientprotocol/sdk/dist/schema/zod.gen.js";
-+import "@anthropic-ai/claude-agent-sdk";
-+import "@getpaseo/client";
-+import "@getpaseo/client/internal/daemon-client";
-+import "@getpaseo/client/node";
-+import "@getpaseo/highlight";
-+import "@getpaseo/plugin";
-+import "@getpaseo/plugin/internal/lifecycle";
-+import "@getpaseo/plugin/server";
-+import "@getpaseo/plugin/server/acp";
-+import "@getpaseo/plugin/server/provider";
-+import "@getpaseo/plugin/server/usage";
-+import "@getpaseo/relay";
-+import "@getpaseo/relay/e2ee";
-+import "@isaacs/ttlcache";
-+import "@modelcontextprotocol/sdk/client/index.js";
-+import "@modelcontextprotocol/sdk/client/sse.js";
-+import "@modelcontextprotocol/sdk/client/stdio.js";
-+import "@modelcontextprotocol/sdk/client/streamableHttp.js";
-+import "@modelcontextprotocol/sdk/server/mcp.js";
-+import "@modelcontextprotocol/sdk/server/streamableHttp.js";
-+import "@modelcontextprotocol/sdk/server/zod-compat.js";
-+import "@modelcontextprotocol/sdk/server/zod-json-schema-compat.js";
-+import "@modelcontextprotocol/sdk/types.js";
-+import "@opencode-ai/sdk/v2/client";
-+import "@opencode/client";
-+import "@opencode/client/service";
-+import "@xterm/addon-serialize";
-+import "@xterm/addon-unicode-graphemes";
-+import "@xterm/headless";
-+import "bcryptjs";
-+import "express";
-+import "fast-deep-equal";
-+import "https-proxy-agent";
-+import "lru-cache";
-+import "markdown-it";
-+import "mnemonic-id";
-+import "node-pty";
-+import "openai";
-+import "p-limit";
-+import "p-throttle";
-+import "pino";
-+import "pino-pretty";
-+import "qrcode";
-+import "semver/functions/compare.js";
-+import "strip-ansi";
-+import "tree-kill";
-+import "uuid";
-+import "ws";
-+import "zod";
-+console.log("all modules initialised");
-diff --git a/packages/server/zzprobe-md/md.ts b/packages/server/zzprobe-md/md.ts
-new file mode 100644
-index 0000000..58d6fa6
---- /dev/null
-+++ b/packages/server/zzprobe-md/md.ts
-@@ -0,0 +1,34 @@
-+import nacl from "tweetnacl";
-+const hex = (bytes: Uint8Array): string => Buffer.from(bytes).toString("hex");
-+const fill = (length: number, seed: number): Uint8Array => {
-+  const out = new Uint8Array(length);
-+  for (let i = 0; i < length; i++) out[i] = (seed * 31 + i * 7) & 255;
-+  return out;
-+};
-+const sk1 = fill(32, 1);
-+const sk2 = fill(32, 2);
-+const kp1 = nacl.box.keyPair.fromSecretKey(sk1);
-+const kp2 = nacl.box.keyPair.fromSecretKey(sk2);
-+const shared = nacl.box.before(kp2.publicKey, kp1.secretKey);
-+const sharedBack = nacl.box.before(kp1.publicKey, kp2.secretKey);
-+const nonce = fill(nacl.box.nonceLength, 3);
-+const message = new TextEncoder().encode("hello relay, 你好");
-+const sealed = nacl.box.after(message, nonce, shared);
-+const opened = nacl.box.open.after(sealed, nonce, sharedBack);
-+const tampered = new Uint8Array(sealed);
-+tampered[0] ^= 1;
-+const scalar = nacl.scalarMult(sk1, kp2.publicKey);
-+const random = nacl.randomBytes(16);
-+const fresh = nacl.box.keyPair();
-+console.log(JSON.stringify({
-+  pk1: hex(kp1.publicKey),
-+  shared: hex(shared),
-+  sharedMatches: hex(shared) === hex(sharedBack),
-+  sealed: hex(sealed),
-+  opened: opened ? new TextDecoder().decode(opened) : null,
-+  tamperedOpens: nacl.box.open.after(tampered, nonce, sharedBack) !== null,
-+  scalar: hex(scalar),
-+  verifySame: nacl.verify(shared, sharedBack),
-+  verifyDifferent: nacl.verify(shared, scalar),
-+  lengths: [random.length, fresh.publicKey.length, fresh.secretKey.length, nacl.box.sharedKeyLength],
-+}));
-diff --git a/packages/server/zzprobe-md/tsconfig.json b/packages/server/zzprobe-md/tsconfig.json
-new file mode 100644
-index 0000000..d7516b0
---- /dev/null
-+++ b/packages/server/zzprobe-md/tsconfig.json
-@@ -0,0 +1 @@
-+{"extends":"../native/tsconfig.json","compilerOptions":{"rootDir":"../../../../.."},"files":["md.ts"],"include":[]}
 diff --git a/plugins/antigravity-provider/server/internal/process.ts b/plugins/antigravity-provider/server/internal/process.ts
 index c87a17a..549a305 100644
 --- a/plugins/antigravity-provider/server/internal/process.ts
