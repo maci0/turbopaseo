@@ -271,7 +271,10 @@ $(BUILD_DIR)/paseo-daemon-$(HOST_NAME): FORCE daemon-prep
 
 # One relocatable directory: the CLI as paseo, the daemon as paseo-daemon
 # (the native CLI starts the paseo-daemon beside it), and DAEMON_RUNTIME.
-dist: $(HOST_NAME) daemon
+# The two programs build at the same time: scriptc's frontend uses one core
+# per build, and each build has its own directory and LLVM helper.
+dist:
+	$(MAKE) -j2 $(HOST_NAME) daemon
 	rm -rf $(DIST_DIR)/paseo-$(HOST_NAME)
 	mkdir -p $(DIST_DIR)/paseo-$(HOST_NAME)
 	cp $(BUILD_DIR)/paseo-$(HOST_NAME) $(DIST_DIR)/paseo-$(HOST_NAME)/paseo

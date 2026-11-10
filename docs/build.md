@@ -49,13 +49,13 @@ To check only whether scriptc's frontend accepts a program, without LLVM:
 scriptc build file.ts --emit=ir -o out.ir --node-islands=off
 ```
 
-The frontend runs on one core per build, so separate checks can run side by side.
+The frontend (parsing, type checking, lowering, LLVM IR generation) runs on one thread, and scriptc has no setting to change that; it is skipped only when no input changed. Code generation is already parallel: the LLVM helper compiles the executable in partitions, one thread per hardware thread, and caches each partition, so a rebuild recompiles only the partitions whose functions changed. Separate programs can build side by side, which is why `make dist` builds the CLI and the daemon at the same time.
 
 The daemon is not built yet. `packages/server/scripts/supervisor-entrypoint.ts` forks `packages/server/src/server/daemon-worker.ts`; scriptc supports `fork()` with an IPC channel when the worker path is a static `new URL(..., import.meta.url)`, and embeds the worker in the same binary.
 
 ## dist
 
-`make dist` builds the host CLI and the daemon (both rebuilt every time, at `OPTIMIZATION`) and gathers them into `dist/paseo-<host>/`:
+`make dist` builds the host CLI and the daemon (both rebuilt every time, at `OPTIMIZATION`, at the same time) and gathers them into `dist/paseo-<host>/`:
 
 | Path | What |
 | --- | --- |
