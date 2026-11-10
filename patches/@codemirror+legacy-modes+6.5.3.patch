@@ -1,0 +1,11 @@
+--- a/node_modules/@codemirror/legacy-modes/mode/clike.js
++++ b/node_modules/@codemirror/legacy-modes/mode/clike.js
+@@ -1009,7 +1009,7 @@
+     token: function(stream, _, style) {
+       if (style == "variable") {
+         // Assume uppercase symbols are classes
+-        var isUpper = RegExp('^[_$]*[A-Z][a-zA-Z0-9_$]*$','g');
++        var isUpper = new RegExp('^[_$]*[A-Z][a-zA-Z0-9_$]*$','g');
+         if (isUpper.test(stream.current())) {
+           return 'type';
+         }

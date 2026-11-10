@@ -1,0 +1,10 @@
+--- a/node_modules/undici-types/fetch.d.ts	2026-11-10 14:09:27.192464514 +0800
++++ b/node_modules/undici-types/fetch.d.ts	2026-11-10 14:09:27.192464514 +0800
+@@ -33,6 +33,7 @@
+ 
+   readonly arrayBuffer: () => Promise<ArrayBuffer>
+   readonly blob: () => Promise<Blob>
++  readonly bytes: () => Promise<Uint8Array>
+   /**
+    * @deprecated This method is not recommended for parsing multipart/form-data bodies in server environments.
+    * It is recommended to use a library such as [@fastify/busboy](https://www.npmjs.com/package/@fastify/busboy) as follows:

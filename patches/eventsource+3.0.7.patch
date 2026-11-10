@@ -1,0 +1,18 @@
+diff -ruN a/node_modules/eventsource/dist/index.js b/node_modules/eventsource/dist/index.js
+--- a/node_modules/eventsource/dist/index.js	2026-11-10 14:09:10.441802557 +0800
++++ b/node_modules/eventsource/dist/index.js	2026-11-10 14:09:10.442271179 +0800
+@@ -176,14 +176,6 @@
+   set onopen(value) {
+     __privateSet(this, _onOpen, value);
+   }
+-  addEventListener(type, listener, options) {
+-    const listen = listener;
+-    super.addEventListener(type, listen, options);
+-  }
+-  removeEventListener(type, listener, options) {
+-    const listen = listener;
+-    super.removeEventListener(type, listen, options);
+-  }
+   /**
+    * Aborts any instances of the fetch algorithm started for this EventSource object, and sets the readyState attribute to CLOSED.
+    *

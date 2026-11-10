@@ -1,0 +1,33 @@
+diff -ruN a/node_modules/qs/lib/stringify.js b/node_modules/qs/lib/stringify.js
+--- a/node_modules/qs/lib/stringify.js	1985-10-26 16:15:00.000000000 +0800
++++ b/node_modules/qs/lib/stringify.js	2026-11-10 13:49:50.536978013 +0800
+@@ -1,6 +1,8 @@
+ 'use strict';
+ 
+-var getSideChannel = require('side-channel');
++var getSideChannel = function getSideChannel() {
++    return new Map();
++};
+ var utils = require('./utils');
+ var formats = require('./formats');
+ var has = Object.prototype.hasOwnProperty;
+diff -ruN a/node_modules/qs/lib/utils.js b/node_modules/qs/lib/utils.js
+--- a/node_modules/qs/lib/utils.js	1985-10-26 16:15:00.000000000 +0800
++++ b/node_modules/qs/lib/utils.js	2026-11-10 13:49:49.384972537 +0800
+@@ -1,14 +1,13 @@
+ 'use strict';
+ 
+ var formats = require('./formats');
+-var getSideChannel = require('side-channel');
+ 
+ var has = Object.prototype.hasOwnProperty;
+ var isArray = Array.isArray;
+ 
+-// Track objects created from arrayLimit overflow using side-channel
++// Track objects created from arrayLimit overflow
+ // Stores the current max numeric index for O(1) lookup
+-var overflowChannel = getSideChannel();
++var overflowChannel = new WeakMap();
+ 
+ var markOverflow = function markOverflow(obj, maxIndex) {
+     overflowChannel.set(obj, maxIndex);

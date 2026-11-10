@@ -1,0 +1,602 @@
+diff -ruN a/node_modules/ws/lib/buffer-util.js b/node_modules/ws/lib/buffer-util.js
+--- a/node_modules/ws/lib/buffer-util.js
++++ b/node_modules/ws/lib/buffer-util.js
+@@ -2,7 +2,7 @@
+ 
+ const { EMPTY_BUFFER } = require('./constants');
+ 
+-const FastBuffer = Buffer[Symbol.species];
++const FastBuffer = Buffer;
+ 
+ /**
+  * Merges an array of buffers into a new buffer.
+diff -ruN a/node_modules/ws/lib/constants.js b/node_modules/ws/lib/constants.js
+--- a/node_modules/ws/lib/constants.js
++++ b/node_modules/ws/lib/constants.js
+@@ -14,6 +14,6 @@
+   kForOnEventAttribute: Symbol('kIsForOnEventAttribute'),
+   kListener: Symbol('kListener'),
+   kStatusCode: Symbol('status-code'),
+-  kWebSocket: Symbol('websocket'),
++  kWebSocket: 'kWebSocket',
+   NOOP: () => {}
+ };
+diff -ruN a/node_modules/ws/lib/event-target.js b/node_modules/ws/lib/event-target.js
+--- a/node_modules/ws/lib/event-target.js
++++ b/node_modules/ws/lib/event-target.js
+@@ -41,8 +41,7 @@
+   }
+ }
+ 
+-Object.defineProperty(Event.prototype, 'target', { enumerable: true });
+-Object.defineProperty(Event.prototype, 'type', { enumerable: true });
++
+ 
+ /**
+  * Class representing a close event.
+@@ -93,9 +92,7 @@
+   }
+ }
+ 
+-Object.defineProperty(CloseEvent.prototype, 'code', { enumerable: true });
+-Object.defineProperty(CloseEvent.prototype, 'reason', { enumerable: true });
+-Object.defineProperty(CloseEvent.prototype, 'wasClean', { enumerable: true });
++
+ 
+ /**
+  * Class representing an error event.
+@@ -134,8 +131,7 @@
+   }
+ }
+ 
+-Object.defineProperty(ErrorEvent.prototype, 'error', { enumerable: true });
+-Object.defineProperty(ErrorEvent.prototype, 'message', { enumerable: true });
++
+ 
+ /**
+  * Class representing a message event.
+@@ -165,7 +161,7 @@
+   }
+ }
+ 
+-Object.defineProperty(MessageEvent.prototype, 'data', { enumerable: true });
++
+ 
+ /**
+  * This provides methods for emulating the `EventTarget` interface. It's not
+@@ -173,21 +169,12 @@
+  *
+  * @mixin
+  */
+-const EventTarget = {
+-  /**
+-   * Register an event listener.
+-   *
+-   * @param {String} type A string representing the event type to listen for
+-   * @param {(Function|Object)} handler The listener to add
+-   * @param {Object} [options] An options object specifies characteristics about
+-   *     the event listener
+-   * @param {Boolean} [options.once=false] A `Boolean` indicating that the
+-   *     listener should be invoked at most once after being added. If `true`,
+-   *     the listener would be automatically removed when invoked.
+-   * @public
+-   */
+-  addEventListener(type, handler, options = {}) {
+-    for (const listener of this.listeners(type)) {
++/**
++ * EventTarget.addEventListener with the target passed explicitly, so a class
++ * can call it from a real method (scriptc has no prototype assignment).
++ */
++function addListener(target, type, handler, options = {}) {
++    for (const listener of target.listeners(type)) {
+       if (
+         !options[kForOnEventAttribute] &&
+         listener[kListener] === handler &&
+@@ -205,19 +192,19 @@
+           data: isBinary ? data : data.toString()
+         });
+ 
+-        event[kTarget] = this;
+-        callListener(handler, this, event);
++        event[kTarget] = target;
++        callListener(handler, target, event);
+       };
+     } else if (type === 'close') {
+       wrapper = function onClose(code, message) {
+         const event = new CloseEvent('close', {
+           code,
+           reason: message.toString(),
+-          wasClean: this._closeFrameReceived && this._closeFrameSent
++          wasClean: target._closeFrameReceived && target._closeFrameSent
+         });
+ 
+-        event[kTarget] = this;
+-        callListener(handler, this, event);
++        event[kTarget] = target;
++        callListener(handler, target, event);
+       };
+     } else if (type === 'error') {
+       wrapper = function onError(error) {
+@@ -226,15 +213,15 @@
+           message: error.message
+         });
+ 
+-        event[kTarget] = this;
+-        callListener(handler, this, event);
++        event[kTarget] = target;
++        callListener(handler, target, event);
+       };
+     } else if (type === 'open') {
+       wrapper = function onOpen() {
+         const event = new Event('open');
+ 
+-        event[kTarget] = this;
+-        callListener(handler, this, event);
++        event[kTarget] = target;
++        callListener(handler, target, event);
+       };
+     } else {
+       return;
+@@ -244,30 +231,34 @@
+     wrapper[kListener] = handler;
+ 
+     if (options.once) {
+-      this.once(type, wrapper);
++      target.once(type, wrapper);
+     } else {
+-      this.on(type, wrapper);
++      target.on(type, wrapper);
+     }
+-  },
++  }
+ 
+-  /**
+-   * Remove an event listener.
+-   *
+-   * @param {String} type A string representing the event type to remove
+-   * @param {(Function|Object)} handler The listener to remove
+-   * @public
+-   */
+-  removeEventListener(type, handler) {
+-    for (const listener of this.listeners(type)) {
++/** EventTarget.removeEventListener with the target passed explicitly. */
++function removeListener(target, type, handler) {
++    for (const listener of target.listeners(type)) {
+       if (listener[kListener] === handler && !listener[kForOnEventAttribute]) {
+-        this.removeListener(type, listener);
++        target.removeListener(type, listener);
+         break;
+       }
+     }
+   }
++
++const EventTarget = {
++  addEventListener(type, handler, options = {}) {
++    addListener(this, type, handler, options);
++  },
++  removeEventListener(type, handler) {
++    removeListener(this, type, handler);
++  }
+ };
+ 
+ module.exports = {
++  addListener,
++  removeListener,
+   CloseEvent,
+   ErrorEvent,
+   Event,
+diff -ruN a/node_modules/ws/lib/permessage-deflate.js b/node_modules/ws/lib/permessage-deflate.js
+--- a/node_modules/ws/lib/permessage-deflate.js
++++ b/node_modules/ws/lib/permessage-deflate.js
+@@ -6,7 +6,7 @@
+ const Limiter = require('./limiter');
+ const { kStatusCode } = require('./constants');
+ 
+-const FastBuffer = Buffer[Symbol.species];
++const FastBuffer = Buffer;
+ const TRAILER = Buffer.from([0x00, 0x00, 0xff, 0xff]);
+ const kPerMessageDeflate = Symbol('permessage-deflate');
+ const kTotalLength = Symbol('total-length');
+diff -ruN a/node_modules/ws/lib/receiver.js b/node_modules/ws/lib/receiver.js
+--- a/node_modules/ws/lib/receiver.js
++++ b/node_modules/ws/lib/receiver.js
+@@ -12,7 +12,7 @@
+ const { concat, toArrayBuffer, unmask } = require('./buffer-util');
+ const { isValidStatusCode, isValidUTF8 } = require('./validation');
+ 
+-const FastBuffer = Buffer[Symbol.species];
++const FastBuffer = Buffer;
+ 
+ const GET_INFO = 0;
+ const GET_PAYLOAD_LENGTH_16 = 1;
+@@ -685,7 +685,7 @@
+    *     `message`
+    * @param {Number} statusCode The status code
+    * @param {String} errorCode The exposed error code
+-   * @return {(Error|RangeError)} The error
++   * @return {Error} The error
+    * @private
+    */
+   createError(ErrorCtor, message, prefix, statusCode, errorCode) {
+diff -ruN a/node_modules/ws/lib/validation.js b/node_modules/ws/lib/validation.js
+--- a/node_modules/ws/lib/validation.js
++++ b/node_modules/ws/lib/validation.js
+@@ -128,25 +128,25 @@
+   );
+ }
+ 
+-module.exports = {
+-  isBlob,
+-  isValidStatusCode,
+-  isValidUTF8: _isValidUTF8,
+-  tokenChars
+-};
+-
++let isValidUTF8 = _isValidUTF8;
+ if (isUtf8) {
+-  module.exports.isValidUTF8 = function (buf) {
++  isValidUTF8 = function (buf) {
+     return buf.length < 24 ? _isValidUTF8(buf) : isUtf8(buf);
+   };
+-} /* istanbul ignore else  */ else if (!process.env.WS_NO_UTF_8_VALIDATE) {
++} else if (!process.env.WS_NO_UTF_8_VALIDATE) {
+   try {
+-    const isValidUTF8 = require('utf-8-validate');
+-
+-    module.exports.isValidUTF8 = function (buf) {
+-      return buf.length < 32 ? _isValidUTF8(buf) : isValidUTF8(buf);
++    const nativeIsValidUTF8 = require('utf-8-validate');
++    isValidUTF8 = function (buf) {
++      return buf.length < 32 ? _isValidUTF8(buf) : nativeIsValidUTF8(buf);
+     };
+   } catch (e) {
+     // Continue regardless of the error.
+   }
+ }
++
++module.exports = {
++  isBlob,
++  isValidStatusCode,
++  isValidUTF8,
++  tokenChars
++};
+diff -ruN a/node_modules/ws/lib/websocket.js b/node_modules/ws/lib/websocket.js
+--- a/node_modules/ws/lib/websocket.js
++++ b/node_modules/ws/lib/websocket.js
+@@ -27,9 +27,7 @@
+   kWebSocket,
+   NOOP
+ } = require('./constants');
+-const {
+-  EventTarget: { addEventListener, removeEventListener }
+-} = require('./event-target');
++const { addListener, removeListener } = require('./event-target');
+ const { format, parse } = require('./extension');
+ const { toBuffer } = require('./buffer-util');
+ 
+@@ -44,6 +42,35 @@
+  * @extends EventEmitter
+  */
+ class WebSocket extends EventEmitter {
++  static CONNECTING = 0;
++  static OPEN = 1;
++  static CLOSING = 2;
++  static CLOSED = 3;
++
++  addEventListener(type, handler, options = {}) {
++    addListener(this, type, handler, options);
++  }
++
++  removeEventListener(type, handler) {
++    removeListener(this, type, handler);
++  }
++
++  get CONNECTING() {
++    return 0;
++  }
++
++  get OPEN() {
++    return 1;
++  }
++
++  get CLOSING() {
++    return 2;
++  }
++
++  get CLOSED() {
++    return 3;
++  }
++
+   /**
+    * Create a new `WebSocket`.
+    *
+@@ -140,33 +167,45 @@
+   /**
+    * @type {Function}
+    */
+-  /* istanbul ignore next */
+   get onclose() {
+-    return null;
++    return readOnHandler(this, 'close');
++  }
++
++  set onclose(handler) {
++    writeOnHandler(this, 'close', handler);
+   }
+ 
+   /**
+    * @type {Function}
+    */
+-  /* istanbul ignore next */
+   get onerror() {
+-    return null;
++    return readOnHandler(this, 'error');
++  }
++
++  set onerror(handler) {
++    writeOnHandler(this, 'error', handler);
+   }
+ 
+   /**
+    * @type {Function}
+    */
+-  /* istanbul ignore next */
+   get onopen() {
+-    return null;
++    return readOnHandler(this, 'open');
++  }
++
++  set onopen(handler) {
++    writeOnHandler(this, 'open', handler);
+   }
+ 
+   /**
+    * @type {Function}
+    */
+-  /* istanbul ignore next */
+   get onmessage() {
+-    return null;
++    return readOnHandler(this, 'message');
++  }
++
++  set onmessage(handler) {
++    writeOnHandler(this, 'message', handler);
+   }
+ 
+   /**
+@@ -502,158 +541,73 @@
+  * @constant {Number} CONNECTING
+  * @memberof WebSocket
+  */
+-Object.defineProperty(WebSocket, 'CONNECTING', {
+-  enumerable: true,
+-  value: readyStates.indexOf('CONNECTING')
+-});
+ 
+ /**
+  * @constant {Number} CONNECTING
+  * @memberof WebSocket.prototype
+  */
+-Object.defineProperty(WebSocket.prototype, 'CONNECTING', {
+-  enumerable: true,
+-  value: readyStates.indexOf('CONNECTING')
+-});
+ 
+ /**
+  * @constant {Number} OPEN
+  * @memberof WebSocket
+  */
+-Object.defineProperty(WebSocket, 'OPEN', {
+-  enumerable: true,
+-  value: readyStates.indexOf('OPEN')
+-});
+ 
+ /**
+  * @constant {Number} OPEN
+  * @memberof WebSocket.prototype
+  */
+-Object.defineProperty(WebSocket.prototype, 'OPEN', {
+-  enumerable: true,
+-  value: readyStates.indexOf('OPEN')
+-});
+ 
+ /**
+  * @constant {Number} CLOSING
+  * @memberof WebSocket
+  */
+-Object.defineProperty(WebSocket, 'CLOSING', {
+-  enumerable: true,
+-  value: readyStates.indexOf('CLOSING')
+-});
+ 
+ /**
+  * @constant {Number} CLOSING
+  * @memberof WebSocket.prototype
+  */
+-Object.defineProperty(WebSocket.prototype, 'CLOSING', {
+-  enumerable: true,
+-  value: readyStates.indexOf('CLOSING')
+-});
+ 
+ /**
+  * @constant {Number} CLOSED
+  * @memberof WebSocket
+  */
+-Object.defineProperty(WebSocket, 'CLOSED', {
+-  enumerable: true,
+-  value: readyStates.indexOf('CLOSED')
+-});
+ 
+ /**
+  * @constant {Number} CLOSED
+  * @memberof WebSocket.prototype
+  */
+-Object.defineProperty(WebSocket.prototype, 'CLOSED', {
+-  enumerable: true,
+-  value: readyStates.indexOf('CLOSED')
+-});
+-
+-[
+-  'binaryType',
+-  'bufferedAmount',
+-  'extensions',
+-  'isPaused',
+-  'protocol',
+-  'readyState',
+-  'url'
+-].forEach((property) => {
+-  Object.defineProperty(WebSocket.prototype, property, { enumerable: true });
+-});
++
++
+ 
+ //
+ // Add the `onopen`, `onerror`, `onclose`, and `onmessage` attributes.
+ // See https://html.spec.whatwg.org/multipage/comms.html#the-websocket-interface
+ //
+-['open', 'error', 'close', 'message'].forEach((method) => {
+-  Object.defineProperty(WebSocket.prototype, `on${method}`, {
+-    enumerable: true,
+-    get() {
+-      for (const listener of this.listeners(method)) {
+-        if (listener[kForOnEventAttribute]) return listener[kListener];
+-      }
+ 
+-      return null;
+-    },
+-    set(handler) {
+-      for (const listener of this.listeners(method)) {
+-        if (listener[kForOnEventAttribute]) {
+-          this.removeListener(method, listener);
+-          break;
+-        }
+-      }
+ 
+-      if (typeof handler !== 'function') return;
++function readOnHandler(socket, method) {
++  for (const listener of socket.listeners(method)) {
++    if (listener[kForOnEventAttribute]) return listener[kListener];
++  }
++  return null;
++}
+ 
+-      this.addEventListener(method, handler, {
+-        [kForOnEventAttribute]: true
+-      });
++function writeOnHandler(socket, method, handler) {
++  for (const listener of socket.listeners(method)) {
++    if (listener[kForOnEventAttribute]) {
++      socket.removeListener(method, listener);
++      break;
+     }
++  }
++  if (typeof handler !== 'function') return;
++  addListener(socket, method, handler, {
++    [kForOnEventAttribute]: true
+   });
+-});
++}
+ 
+-WebSocket.prototype.addEventListener = addEventListener;
+-WebSocket.prototype.removeEventListener = removeEventListener;
+ 
+ module.exports = WebSocket;
+ 
+-/**
+- * Initialize a WebSocket client.
+- *
+- * @param {WebSocket} websocket The client to initialize
+- * @param {(String|URL)} address The URL to which to connect
+- * @param {Array} protocols The subprotocols
+- * @param {Object} [options] Connection options
+- * @param {Boolean} [options.allowSynchronousEvents=true] Specifies whether any
+- *     of the `'message'`, `'ping'`, and `'pong'` events can be emitted multiple
+- *     times in the same tick
+- * @param {Boolean} [options.autoPong=true] Specifies whether or not to
+- *     automatically send a pong in response to a ping
+- * @param {Number} [options.closeTimeout=30000] Duration in milliseconds to wait
+- *     for the closing handshake to finish after `websocket.close()` is called
+- * @param {Function} [options.finishRequest] A function which can be used to
+- *     customize the headers of each http request before it is sent
+- * @param {Boolean} [options.followRedirects=false] Whether or not to follow
+- *     redirects
+- * @param {Function} [options.generateMask] The function used to generate the
+- *     masking key
+- * @param {Number} [options.handshakeTimeout] Timeout in milliseconds for the
+- *     handshake request
+- * @param {Number} [options.maxPayload=104857600] The maximum allowed message
+- *     size
+- * @param {Number} [options.maxRedirects=10] The maximum number of redirects
+- *     allowed
+- * @param {String} [options.origin] Value of the `Origin` or
+- *     `Sec-WebSocket-Origin` header
+- * @param {(Boolean|Object)} [options.perMessageDeflate=true] Enable/disable
+- *     permessage-deflate
+- * @param {Number} [options.protocolVersion=13] Value of the
+- *     `Sec-WebSocket-Version` header
+- * @param {Boolean} [options.skipUTF8Validation=false] Specifies whether or
+- *     not to skip UTF-8 validation for text and close messages
+- * @private
+- */
+ function initAsClient(websocket, address, protocols, options) {
+   const opts = {
+     allowSynchronousEvents: true,
+@@ -882,7 +836,8 @@
+   req.on('error', (err) => {
+     if (req === null || req[kAborted]) return;
+ 
+-    req = websocket._req = null;
++    const closedReq = null;
++    req = websocket._req = closedReq;
+     emitErrorAndClose(websocket, err);
+   });
+ 
+@@ -932,7 +887,8 @@
+     //
+     if (websocket.readyState !== WebSocket.CONNECTING) return;
+ 
+-    req = websocket._req = null;
++    const upgradedReq = null;
++    req = websocket._req = upgradedReq;
+ 
+     const upgrade = res.headers.upgrade;
+ 
+@@ -1033,7 +989,7 @@
+  * Emit the `'error'` and `'close'` events.
+  *
+  * @param {WebSocket} websocket The WebSocket instance
+- * @param {Error} The error to emit
++ * @param {Error} err The error to emit
+  * @private
+  */
+ function emitErrorAndClose(websocket, err) {
+diff -ruN a/node_modules/ws/lib/websocket-server.js b/node_modules/ws/lib/websocket-server.js
+--- a/node_modules/ws/lib/websocket-server.js
++++ b/node_modules/ws/lib/websocket-server.js
+@@ -103,12 +103,20 @@
+         });
+         res.end(body);
+       });
+-      this._server.listen(
+-        options.port,
+-        options.host,
+-        options.backlog,
+-        callback
+-      );
++      // scriptc has no listen() overload that takes a backlog, and its
++      // listen() rejects an undefined callback.
++      if (options.backlog == null && callback) {
++        this._server.listen(options.port, options.host, callback);
++      } else if (options.backlog == null) {
++        this._server.listen(options.port, options.host);
++      } else {
++        this._server.listen(
++          options.port,
++          options.host,
++          options.backlog,
++          callback
++        );
++      }
+     } else if (options.server) {
+       this._server = options.server;
+     }

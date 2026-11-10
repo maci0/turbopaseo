@@ -1,0 +1,1896 @@
+diff -ruN a/addons/addon-serialize/src/SerializeAddon.ts b/addons/addon-serialize/src/SerializeAddon.ts
+--- a/addons/addon-serialize/src/SerializeAddon.ts
++++ b/addons/addon-serialize/src/SerializeAddon.ts
+@@ -5,9 +5,11 @@
+  * (EXPERIMENTAL) This Addon is still under development
+  */
+ 
+-import type { IBuffer, IBufferCell, IBufferRange, ITerminalAddon, Terminal } from '../../../typings/xterm';
++import type { IBufferRange } from '../../../typings/xterm';
++import type { IBuffer, IBufferCell, ITerminalAddon, Terminal } from '../../../../types';
+ import type { IHTMLSerializeOptions, SerializeAddon as ISerializeApi, ISerializeOptions, ISerializeRange } from '../typings/addon-serialize';
+-import { IAttributeData, IColor } from '../../../src/common/Types';
++import { IColor } from '../../../src/common/Types';
++import { IAttributeData } from '../../../src/common/buffer/Types';
+ import { DEFAULT_ANSI_COLORS } from '../../../src/browser/Types';
+ 
+ function constrain(value: number, low: number, high: number): number {
+@@ -422,7 +424,7 @@
+   }
+ }
+ 
+-export class SerializeAddon implements ITerminalAddon , ISerializeApi {
++export class SerializeAddon implements ITerminalAddon {
+   private _terminal: Terminal | undefined;
+ 
+   public activate(terminal: Terminal): void {
+@@ -467,13 +469,9 @@
+       });
+     }
+ 
+-    const selection = this._terminal?.getSelectionPosition();
+-    if (selection !== undefined) {
+-      return handler.serialize({
+-        start: { x: selection.start.x, y: selection.start.y },
+-        end:   { x: selection.end.x,   y: selection.end.y   }
+-      });
+-    }
++    // native: a headless terminal has no getSelectionPosition (under Node this call throws a
++    // TypeError); the native build types the terminal as the headless class.
++    if (this._terminal !== undefined) throw new TypeError('terminal.getSelectionPosition is not a function');
+ 
+     return '';
+   }
+diff -ruN a/addons/addon-unicode-graphemes/src/third-party/tiny-inflate.ts b/addons/addon-unicode-graphemes/src/third-party/tiny-inflate.ts
+--- a/addons/addon-unicode-graphemes/src/third-party/tiny-inflate.ts
++++ b/addons/addon-unicode-graphemes/src/third-party/tiny-inflate.ts
+@@ -353,10 +353,8 @@
+   } while (!bfinal);
+ 
+   if (d.destLen < d.dest.length) {
+-    if (typeof d.dest.slice === 'function')
+-      return d.dest.slice(0, d.destLen);
+-    else
+-      return d.dest.subarray(0, d.destLen);
++    // native: Uint8Array always has slice.
++    return d.dest.slice(0, d.destLen);
+   }
+   
+   return d.dest;
+diff -ruN a/addons/addon-unicode-graphemes/src/UnicodeGraphemesAddon.ts b/addons/addon-unicode-graphemes/src/UnicodeGraphemesAddon.ts
+--- a/addons/addon-unicode-graphemes/src/UnicodeGraphemesAddon.ts
++++ b/addons/addon-unicode-graphemes/src/UnicodeGraphemesAddon.ts
+@@ -6,11 +6,11 @@
+  * (The provider is still registered as versions '15' and '15-graphemes'.)
+  */
+ 
+-import type { Terminal, ITerminalAddon, IUnicodeHandling } from '../../../typings/xterm';
++import type { Terminal, ITerminalAddon, IUnicodeHandling } from '../../../../types';
+ import type { UnicodeGraphemesAddon as IUnicodeGraphemesApi } from '../typings/addon-unicode-graphemes';
+ import { UnicodeGraphemeProvider } from './UnicodeGraphemeProvider';
+ 
+-export class UnicodeGraphemesAddon implements ITerminalAddon, IUnicodeGraphemesApi {
++export class UnicodeGraphemesAddon implements ITerminalAddon {
+   private _provider15Graphemes?: UnicodeGraphemeProvider;
+   private _provider15?: UnicodeGraphemeProvider;
+   private _unicode?: IUnicodeHandling;
+diff -ruN a/src/common/Async.ts b/src/common/Async.ts
+--- a/src/common/Async.ts
++++ b/src/common/Async.ts
+@@ -33,7 +33,7 @@
+ }
+ 
+ export class TimeoutTimer implements IDisposable {
+-  private _token: any = -1;
++  private _token: ReturnType<typeof setTimeout> | undefined = undefined;
+   private _isDisposed = false;
+ 
+   public dispose(): void {
+@@ -42,9 +42,9 @@
+   }
+ 
+   public cancel(): void {
+-    if (this._token !== -1) {
++    if (this._token !== undefined) {
+       clearTimeout(this._token);
+-      this._token = -1;
++      this._token = undefined;
+     }
+   }
+ 
+@@ -54,7 +54,7 @@
+     }
+     this.cancel();
+     this._token = setTimeout(() => {
+-      this._token = -1;
++      this._token = undefined;
+       runner();
+     }, timeout);
+   }
+@@ -63,11 +63,11 @@
+     if (this._isDisposed) {
+       throw new Error('Calling setIfNotSet on a disposed TimeoutTimer');
+     }
+-    if (this._token !== -1) {
++    if (this._token !== undefined) {
+       return;
+     }
+     this._token = setTimeout(() => {
+-      this._token = -1;
++      this._token = undefined;
+       runner();
+     }, timeout);
+   }
+diff -ruN a/src/common/buffer/BufferLine.ts b/src/common/buffer/BufferLine.ts
+--- a/src/common/buffer/BufferLine.ts
++++ b/src/common/buffer/BufferLine.ts
+@@ -66,12 +66,12 @@
+  * (if only one particular value is needed) or `loadCell`. For `loadCell` in a loop
+  * memory allocs / GC pressure can be greatly reduced by reusing the CellData object.
+  */
+-export class BufferLine implements IBufferLine {
++export class BufferLine {
+   protected _data: Uint32Array;
+   /** Sparse cache; only read when `IS_COMBINED_MASK` is set in `_data`. */
+-  protected _combined: {[index: number]: string} = {};
++  protected _combined: {[index: string]: string} = {};
+   /** Sparse cache; only read when `HAS_EXTENDED` is set in `_data`. */
+-  protected _extendedAttrs: {[index: number]: IExtendedAttrs | undefined} = {};
++  protected _extendedAttrs: {[index: string]: IExtendedAttrs | undefined} = {};
+   public length: number;
+ 
+   // INTERNAL - if modifying, use Buffer.setWrapped.
+@@ -294,7 +294,7 @@
+     let content = this._data[index * Constants.CELL_INDICIES + Cell.CONTENT];
+     if (content & Content.IS_COMBINED_MASK) {
+       // we already have a combined string, simply add
+-      this._combined[index] += stringFromCodePoint(codePoint);
++      this._combined[index] = this._combined[index] + stringFromCodePoint(codePoint);
+     } else {
+       if (content & Content.CODEPOINT_MASK) {
+         // normal case for combining chars:
+@@ -438,7 +438,7 @@
+       for (let i = 0; i < keys.length; i++) {
+         const key = parseInt(keys[i], 10);
+         if (key >= cols) {
+-          delete this._combined[key];
++          delete this._combined[keys[i]];
+         }
+       }
+       // remove any cut off extended attributes
+@@ -446,7 +446,7 @@
+       for (let i = 0; i < extKeys.length; i++) {
+         const key = parseInt(extKeys[i], 10);
+         if (key >= cols) {
+-          delete this._extendedAttrs[key];
++          delete this._extendedAttrs[extKeys[i]];
+         }
+       }
+       // handle fullwidth at line end: reset last cell if it is first cell of a wide char
+diff -ruN a/src/common/buffer/CellData.ts b/src/common/buffer/CellData.ts
+--- a/src/common/buffer/CellData.ts
++++ b/src/common/buffer/CellData.ts
+@@ -12,7 +12,7 @@
+ /**
+  * CellData - represents a single Cell in the terminal buffer.
+  */
+-export class CellData extends AttributeData implements ICellData {
++export class CellData extends AttributeData {
+   /** Helper to create CellData from CharData. */
+   public static fromCharData(value: CharData): CellData {
+     const obj = new CellData();
+diff -ruN a/src/common/buffer/Marker.ts b/src/common/buffer/Marker.ts
+--- a/src/common/buffer/Marker.ts
++++ b/src/common/buffer/Marker.ts
+@@ -5,7 +5,7 @@
+ 
+ import { dispose, IDisposable } from '../Lifecycle';
+ import { IMarker } from './Types';
+-import { Emitter } from '../Event';
++import { VoidEmitter } from '../Event';
+ 
+ export class Marker implements IMarker {
+   private static _nextId = 1;
+@@ -16,7 +16,7 @@
+   private readonly _id: number = Marker._nextId++;
+   public get id(): number { return this._id; }
+ 
+-  private readonly _onDispose = this.register(new Emitter<void>());
++  private readonly _onDispose = this.register(new VoidEmitter());
+   public readonly onDispose = this._onDispose.event;
+ 
+   constructor(
+diff -ruN a/src/common/buffer/Types.ts b/src/common/buffer/Types.ts
+--- a/src/common/buffer/Types.ts
++++ b/src/common/buffer/Types.ts
+@@ -4,7 +4,9 @@
+  */
+ 
+ import type { IEvent } from '../Event';
+-import type { ICircularList } from '../CircularList';
++import type { CircularList } from '../CircularList';
++import type { BufferLine } from './BufferLine';
++import type { CellData } from './CellData';
+ import type { ICharset } from '../Types';
+ import type { IDisposable } from '../Lifecycle';
+ import type { UnderlineStyle } from './Constants';
+@@ -103,52 +105,15 @@
+ }
+ 
+ /** Cell data */
+-export interface ICellData extends IAttributeData {
+-  content: number;
+-  combinedData: string;
+-  isCombined(): number;
+-  getWidth(): number;
+-  getChars(): string;
+-  getCode(): number;
+-  setFromCharData(value: CharData): void;
+-  getAsCharData(): CharData;
+-}
++// native: the internal cell type is its one implementation (see IBufferLine).
++export type ICellData = CellData;
+ 
+ /**
+  * Interface for a line in the terminal buffer.
+  */
+-export interface IBufferLine {
+-  length: number;
+-  readonly isWrapped: boolean;
+-  get(index: number): CharData;
+-  set(index: number, value: CharData): void;
+-  loadCell(index: number, cell: ICellData): ICellData;
+-  setCell(index: number, cell: ICellData): void;
+-  setCellFromCodepoint(index: number, codePoint: number, width: number, attrs: IAttributeData): void;
+-  addCodepointToCell(index: number, codePoint: number, width: number): void;
+-  insertCells(pos: number, n: number, ch: ICellData): void;
+-  deleteCells(pos: number, n: number, fill: ICellData): void;
+-  replaceCells(start: number, end: number, fill: ICellData, respectProtect?: boolean): void;
+-  resize(cols: number, fill: ICellData): boolean;
+-  cleanupMemory(): number;
+-  fill(fillCellData: ICellData, respectProtect?: boolean): void;
+-  copyFrom(line: IBufferLine, blank?: boolean): void;
+-  clone(blank?: boolean): IBufferLine;
+-  getTrimmedLength(): number;
+-  getNoBgTrimmedLength(): number;
+-  translateToString(trimRight?: boolean, startCol?: number, endCol?: number, outColumns?: number[]): string;
+-
+-  /* direct access to cell attrs */
+-  getWidth(index: number): number;
+-  hasWidth(index: number): number;
+-  getFg(index: number): number;
+-  getBg(index: number): number;
+-  hasContent(index: number): number;
+-  getCodePoint(index: number): number;
+-  isCombined(index: number): number;
+-  getString(index: number): string;
+-  getExtended(index: number): IExtendedAttrs;
+-}
++// native: the internal line type is its one implementation, so scriptc sees a class, not an
++// interface (it cannot instantiate CircularList over an interface).
++export type IBufferLine = BufferLine;
+ 
+ export interface IMarker extends IDisposable {
+   readonly id: number;
+@@ -158,7 +123,7 @@
+ }
+ 
+ export interface IBuffer {
+-  readonly lines: ICircularList<IBufferLine>;
++  readonly lines: CircularList<IBufferLine>;
+   ydisp: number;
+   ybase: number;
+   y: number;
+diff -ruN a/src/common/CircularList.ts b/src/common/CircularList.ts
+--- a/src/common/CircularList.ts
++++ b/src/common/CircularList.ts
+@@ -42,7 +42,8 @@
+  * Represents a circular list; a list with a maximum size that wraps around when push is called,
+  * overriding values at the start of the list.
+  */
+-export class CircularList<T> extends Disposable implements ICircularList<T> {
++// native: no `implements ICircularList<T>`; with it scriptc cannot lay out CircularList<BufferLine>.
++export class CircularList<T> extends Disposable {
+   protected _array: (T | undefined)[];
+   private _startIndex: number;
+   private _length: number;
+diff -ruN a/src/common/Color.ts b/src/common/Color.ts
+--- a/src/common/Color.ts
++++ b/src/common/Color.ts
+@@ -116,26 +116,7 @@
+  * '#rrggbbaa').
+  */
+ export namespace css {
+-  // Attempt to set get the shared canvas context
+-  let $ctx: CanvasRenderingContext2D | undefined;
+-  let $litmusColor: CanvasGradient | undefined;
+-  try {
+-    // This is guaranteed to run in the first window, so document should be correct
+-    const canvas = document.createElement('canvas');
+-    canvas.width = 1;
+-    canvas.height = 1;
+-    const ctx = canvas.getContext('2d', {
+-      willReadFrequently: true
+-    });
+-    if (ctx) {
+-      $ctx = ctx;
+-      $ctx.globalCompositeOperation = 'copy';
+-      $litmusColor = $ctx.createLinearGradient(0, 0, 1, 1);
+-    }
+-  }
+-  catch {
+-    // noop
+-  }
++  // native: no canvas context; Node.js has no `document`, so upstream finds none either.
+ 
+   /**
+    * Converts a css string to an IColor, this should handle all valid CSS color strings and will
+@@ -192,34 +173,8 @@
+       };
+     }
+ 
+-    // Validate the context is available for canvas-based color parsing
+-    if (!$ctx || !$litmusColor) {
+-      throw new Error('css.toColor: Unsupported css format');
+-    }
+-
+-    // Validate the color using canvas fillStyle
+-    // See https://html.spec.whatwg.org/multipage/canvas.html#fill-and-stroke-styles
+-    $ctx.fillStyle = $litmusColor;
+-    $ctx.fillStyle = css;
+-    if (typeof $ctx.fillStyle !== 'string') {
+-      throw new Error('css.toColor: Unsupported css format');
+-    }
+-
+-    $ctx.fillRect(0, 0, 1, 1);
+-    [$r, $g, $b, $a] = $ctx.getImageData(0, 0, 1, 1).data;
+-
+-    // Validate the color is non-transparent as color hue gets lost when drawn to the canvas
+-    if ($a !== 0xFF) {
+-      throw new Error('css.toColor: Unsupported css format');
+-    }
+-
+-    // Extract the color from the canvas' fillStyle property which exposes the color value in rgba()
+-    // format
+-    // See https://html.spec.whatwg.org/multipage/canvas.html#serialisation-of-a-color
+-    return {
+-      rgba: channels.toRgba($r, $g, $b, $a),
+-      css
+-    };
++    // Without a canvas context, as under Node.js.
++    throw new Error('css.toColor: Unsupported css format');
+   }
+ }
+ 
+diff -ruN a/src/common/CoreTerminal.ts b/src/common/CoreTerminal.ts
+--- a/src/common/CoreTerminal.ts
++++ b/src/common/CoreTerminal.ts
+@@ -21,8 +21,7 @@
+  *   http://linux.die.net/man/7/urxvt
+  */
+ 
+-import { IInstantiationService, IOptionsService, IBufferService, ILogService, ICharsetService, ICoreService, IMouseStateService, IUnicodeService, LogLevelEnum, IOscLinkService } from './services/Services';
+-import { InstantiationService } from './services/InstantiationService';
++import { IOptionsService, IBufferService, ILogService, ICharsetService, ICoreService, IMouseStateService, IUnicodeService, LogLevelEnum, IOscLinkService } from './services/Services';
+ import { LogService } from './services/LogService';
+ import { BufferService, BufferServiceConstants } from './services/BufferService';
+ import { OptionsService } from './services/OptionsService';
+@@ -38,7 +37,7 @@
+ import { InputHandler } from './InputHandler';
+ import { WriteBuffer } from './input/WriteBuffer';
+ import { OscLinkService } from './services/OscLinkService';
+-import { Emitter, EventUtils, type IEvent } from './Event';
++import { Emitter, VoidEmitter, EventUtils, type IEvent } from './Event';
+ import { Disposable, MutableDisposable, toDisposable } from './Lifecycle';
+ 
+ // Only trigger this warning a single time per session
+@@ -59,7 +58,6 @@
+ }
+ 
+ export abstract class CoreTerminal extends Disposable implements ICoreTerminal {
+-  protected readonly _instantiationService: IInstantiationService;
+   protected readonly _bufferService: IBufferService;
+   protected readonly _logService: ILogService;
+   protected readonly _charsetService: ICharsetService;
+@@ -78,13 +76,13 @@
+   public readonly onBinary = this._onBinary.event;
+   private readonly _onData = this._register(new Emitter<string>());
+   public readonly onData = this._onData.event;
+-  protected _onLineFeed = this._register(new Emitter<void>());
++  protected _onLineFeed = this._register(new VoidEmitter());
+   public readonly onLineFeed = this._onLineFeed.event;
+   protected readonly _onRender = this._register(new Emitter<{ start: number, end: number }>());
+   public readonly onRender = this._onRender.event;
+   private readonly _onResize = this._register(new Emitter<{ cols: number, rows: number }>());
+   public readonly onResize = this._onResize.event;
+-  protected readonly _onWriteParsed = this._register(new Emitter<void>());
++  protected readonly _onWriteParsed = this._register(new VoidEmitter());
+   public readonly onWriteParsed = this._onWriteParsed.event;
+ 
+   /**
+@@ -109,7 +107,7 @@
+   public get options(): Required<ITerminalOptions> { return this.optionsService.options; }
+   public set options(options: ITerminalOptions) {
+     for (const key in options) {
+-      this.optionsService.options[key] = options[key];
++      this.optionsService.setOption(key, options[key]);
+     }
+   }
+ 
+@@ -119,29 +117,21 @@
+     super();
+ 
+     // Setup and initialize services
+-    this._instantiationService = new InstantiationService();
++    // native: services are constructed directly; scriptc compiles no parameter decorators.
+     this.optionsService = this._register(new OptionsService(options));
+-    this._instantiationService.setService(IOptionsService, this.optionsService);
+-    this._logService = this._register(this._instantiationService.createInstance(LogService));
+-    this._instantiationService.setService(ILogService, this._logService);
+-    this._bufferService = this._register(this._instantiationService.createInstance(BufferService));
+-    this._instantiationService.setService(IBufferService, this._bufferService);
+-    this.coreService = this._register(this._instantiationService.createInstance(CoreService));
+-    this._instantiationService.setService(ICoreService, this.coreService);
+-    this.mouseStateService = this._register(this._instantiationService.createInstance(MouseStateService));
+-    this._instantiationService.setService(IMouseStateService, this.mouseStateService);
+-    this.unicodeService = this._register(this._instantiationService.createInstance(UnicodeService));
++    this._logService = this._register(new LogService(this.optionsService));
++    this._bufferService = this._register(new BufferService(this.optionsService, this._logService));
++    this.coreService = this._register(new CoreService(this._bufferService, this._logService, this.optionsService));
++    this.mouseStateService = this._register(new MouseStateService());
++    this.unicodeService = this._register(new UnicodeService());
+     this.unicodeService.register(new UnicodeV6());
+-    this._instantiationService.setService(IUnicodeService, this.unicodeService);
+-    this._charsetService = this._instantiationService.createInstance(CharsetService);
+-    this._instantiationService.setService(ICharsetService, this._charsetService);
+-    this._oscLinkService = this._instantiationService.createInstance(OscLinkService);
+-    this._instantiationService.setService(IOscLinkService, this._oscLinkService);
++    this._charsetService = new CharsetService();
++    this._oscLinkService = new OscLinkService(this._bufferService);
+ 
+ 
+     // Register input handler and handle/forward events
+     this._inputHandler = this._register(new InputHandler(this._bufferService, this._charsetService, this.coreService, this._logService, this.optionsService, this._oscLinkService, this.mouseStateService, this.unicodeService));
+-    this._register(EventUtils.forward(this._inputHandler.onLineFeed, this._onLineFeed));
++    this._register(EventUtils.forwardVoid(this._inputHandler.onLineFeed, this._onLineFeed));
+ 
+     // Setup listeners
+     this._register(EventUtils.forward(this._bufferService.onResize, this._onResize));
+@@ -156,7 +146,7 @@
+     }));
+     // Setup WriteBuffer
+     this._writeBuffer = this._register(new WriteBuffer((data, promiseResult) => this._inputHandler.parse(data, promiseResult)));
+-    this._register(EventUtils.forward(this._writeBuffer.onWriteParsed, this._onWriteParsed));
++    this._register(EventUtils.forwardVoid(this._writeBuffer.onWriteParsed, this._onWriteParsed));
+   }
+ 
+   public write(data: string | Uint8Array, callback?: () => void): void {
+@@ -292,7 +282,7 @@
+   protected _enableWindowsWrappingHeuristics(): void {
+     if (!this._windowsWrappingHeuristics.value) {
+       const disposables: IDisposable[] = [];
+-      disposables.push(this.onLineFeed(updateWindowsModeWrappedState.bind(null, this._bufferService)));
++      disposables.push(this.onLineFeed(() => updateWindowsModeWrappedState(this._bufferService)));
+       disposables.push(this.registerCsiHandler({ final: 'H' }, () => {
+         updateWindowsModeWrappedState(this._bufferService);
+         return false;
+diff -ruN a/src/common/data/Charsets.ts b/src/common/data/Charsets.ts
+--- a/src/common/data/Charsets.ts
++++ b/src/common/data/Charsets.ts
+@@ -98,7 +98,7 @@
+  * ESC (C or ESC (5
+  * Reference: http://vt100.net/docs/vt220-rm/table2-7.html
+  */
+-CHARSETS['C'] = CHARSETS['5'] = {
++CHARSETS['5'] = {
+   '[': 'Ä',
+   '\\': 'Ö',
+   ']': 'Å',
+@@ -109,6 +109,7 @@
+   '}': 'å',
+   '~': 'ü'
+ };
++CHARSETS['C'] = CHARSETS['5'];
+ 
+ /**
+  * French character set
+@@ -184,7 +185,7 @@
+  * ESC (E or ESC (6
+  * Reference: http://vt100.net/docs/vt220-rm/table2-12.html
+  */
+-CHARSETS['E'] = CHARSETS['6'] = {
++CHARSETS['6'] = {
+   '@': 'Ä',
+   '[': 'Æ',
+   '\\': 'Ø',
+@@ -196,6 +197,7 @@
+   '}': 'å',
+   '~': 'ü'
+ };
++CHARSETS['E'] = CHARSETS['6'];
+ 
+ /**
+  * Spanish character set
+@@ -218,7 +220,7 @@
+  * ESC (H or ESC (7
+  * Reference: http://vt100.net/docs/vt220-rm/table2-14.html
+  */
+-CHARSETS['H'] = CHARSETS['7'] = {
++CHARSETS['7'] = {
+   '@': 'É',
+   '[': 'Ä',
+   '\\': 'Ö',
+@@ -230,6 +232,7 @@
+   '}': 'å',
+   '~': 'ü'
+ };
++CHARSETS['H'] = CHARSETS['7'];
+ 
+ /**
+  * Swiss character set
+diff -ruN a/src/common/Event.ts b/src/common/Event.ts
+--- a/src/common/Event.ts
++++ b/src/common/Event.ts
+@@ -74,11 +74,81 @@
+   }
+ }
+ 
++/**
++ * native: Emitter<void> for scriptc, which cannot compile a class instantiated with `void`.
++ * Listeners are called with no argument, so they receive `undefined` as with Emitter<void>.
++ */
++export class VoidEmitter {
++  private _listeners: { fn: () => any, thisArgs: any }[] = [];
++  private _disposed = false;
++  private _event: IEvent<void> | undefined;
++
++  public get event(): IEvent<void> {
++    if (this._event) {
++      return this._event;
++    }
++    this._event = (listener: () => any, thisArgs?: any, disposables?: IDisposable[] | DisposableStore) => {
++      if (this._disposed) {
++        return toDisposable(() => {});
++      }
++
++      const entry = { fn: listener, thisArgs };
++      this._listeners = this._listeners.slice();
++      this._listeners.push(entry);
++
++      const result = toDisposable(() => {
++        const idx = this._listeners.indexOf(entry);
++        if (idx !== -1) {
++          this._listeners = this._listeners.slice();
++          this._listeners.splice(idx, 1);
++        }
++      });
++
++      if (disposables) {
++        if (Array.isArray(disposables)) {
++          disposables.push(result);
++        } else {
++          disposables.add(result);
++        }
++      }
++
++      return result;
++    };
++    return this._event;
++  }
++
++  public fire(): void {
++    if (this._disposed || !this._listeners.length) {
++      return;
++    }
++    if (this._listeners.length === 1) {
++      this._listeners[0].fn.call(this._listeners[0].thisArgs);
++      return;
++    }
++    const listeners = this._listeners;
++    for (let i = 0, len = listeners.length; i < len; ++i) {
++      listeners[i].fn.call(listeners[i].thisArgs);
++    }
++  }
++
++  public dispose(): void {
++    if (this._disposed) {
++      return;
++    }
++    this._disposed = true;
++    this._listeners.length = 0;
++  }
++}
++
+ export namespace EventUtils {
+   export function forward<T>(from: IEvent<T>, to: Emitter<T>): IDisposable {
+     return from(e => to.fire(e));
+   }
+ 
++  export function forwardVoid(from: IEvent<void>, to: VoidEmitter): IDisposable {
++    return from(() => to.fire());
++  }
++
+   export function map<I, O>(event: IEvent<I>, map: (i: I) => O): IEvent<O> {
+     return (listener: (e: O) => any, thisArgs?: any, disposables?: IDisposable[] | DisposableStore) => {
+       return event(i => listener.call(thisArgs, map(i)), undefined, disposables);
+diff -ruN a/src/common/input/UnicodeV6.ts b/src/common/input/UnicodeV6.ts
+--- a/src/common/input/UnicodeV6.ts
++++ b/src/common/input/UnicodeV6.ts
+@@ -59,7 +59,7 @@
+ ];
+ 
+ // BMP lookup table, lazy initialized during first addon loading
+-let table: Uint8Array;
++let table: Uint8Array | undefined;
+ 
+ function bisearch(ucs: number, data: number[][]): boolean {
+   let min = 0;
+@@ -83,6 +83,8 @@
+ 
+ export class UnicodeV6 implements IUnicodeVersionProvider {
+   public readonly version = '6';
++  // native: scriptc reads the lazily created module table only through a field.
++  private readonly _table: Uint8Array;
+ 
+   constructor() {
+     // init lookup table once
+@@ -118,12 +120,13 @@
+         table.fill(0, BMP_COMBINING[r][0], BMP_COMBINING[r][1] + 1);
+       }
+     }
++    this._table = table;
+   }
+ 
+   public wcwidth(num: number): UnicodeCharWidth {
+     if (num < 32) return 0;
+     if (num < 127) return 1;
+-    if (num < 65536) return table[num] as UnicodeCharWidth;
++    if (num < 65536) return this._table[num] as UnicodeCharWidth;
+     if (bisearch(num, HIGH_COMBINING)) return 0;
+     if ((num >= 0x20000 && num <= 0x2fffd) || (num >= 0x30000 && num <= 0x3fffd)) return 2;
+     return 1;
+diff -ruN a/src/common/input/WriteBuffer.ts b/src/common/input/WriteBuffer.ts
+--- a/src/common/input/WriteBuffer.ts
++++ b/src/common/input/WriteBuffer.ts
+@@ -6,7 +6,7 @@
+ 
+ import { TimeoutTimer } from '../Async';
+ import { Disposable, toDisposable } from '../Lifecycle';
+-import { Emitter } from '../Event';
++import { Emitter, VoidEmitter } from '../Event';
+ 
+ const enum Constants {
+   /**
+@@ -33,6 +33,11 @@
+   WRITE_BUFFER_LENGTH_THRESHOLD = 50
+ }
+ 
++// native: scriptc reads .length of a string | Uint8Array union only after narrowing.
++function chunkLength(data: string | Uint8Array): number {
++  return typeof data === 'string' ? data.length : data.length;
++}
++
+ export class WriteBuffer extends Disposable {
+   private _writeBuffer: (string | Uint8Array)[] = [];
+   private _callbacks: ((() => void) | undefined)[] = [];
+@@ -43,7 +48,7 @@
+   private _didUserInput = false;
+ 
+   private readonly _innerWriteTimer = this._register(new TimeoutTimer());
+-  private readonly _onWriteParsed = this._register(new Emitter<void>());
++  private readonly _onWriteParsed = this._register(new VoidEmitter());
+   public readonly onWriteParsed = this._onWriteParsed.event;
+ 
+   constructor(private _action: (data: string | Uint8Array, promiseResult?: boolean) => void | Promise<boolean>) {
+@@ -116,7 +121,7 @@
+       return;
+     }
+     // append chunk to buffer
+-    this._pendingData += data.length;
++    this._pendingData += chunkLength(data);
+     this._writeBuffer.push(data);
+     this._callbacks.push(undefined);
+ 
+@@ -165,7 +170,7 @@
+       // otherwise schedule for the next event
+       if (this._didUserInput) {
+         this._didUserInput = false;
+-        this._pendingData += data.length;
++        this._pendingData += chunkLength(data);
+         this._writeBuffer.push(data);
+         this._callbacks.push(callback);
+         this._innerWrite();
+@@ -175,7 +180,7 @@
+       this._scheduleInnerWrite();
+     }
+ 
+-    this._pendingData += data.length;
++    this._pendingData += chunkLength(data);
+     this._writeBuffer.push(data);
+     this._callbacks.push(callback);
+   }
+@@ -289,7 +294,7 @@
+       // Retire the chunk before its callback can synchronously flush the remaining queue.
+       const cb = this._callbacks[this._bufferOffset];
+       this._bufferOffset++;
+-      this._pendingData -= data.length;
++      this._pendingData -= chunkLength(data);
+       if (cb) cb();
+ 
+       if (performance.now() - startTime >= Constants.WRITE_TIMEOUT_MS) {
+diff -ruN a/src/common/input/XParseColor.ts b/src/common/input/XParseColor.ts
+--- a/src/common/input/XParseColor.ts
++++ b/src/common/input/XParseColor.ts
+@@ -41,12 +41,12 @@
+     low = low.slice(1);
+     if (HASH_REX.exec(low) && [3, 6, 9, 12].includes(low.length)) {
+       const adv = low.length / 3;
+-      const result: [number, number, number] = [0, 0, 0];
++      const result: number[] = [0, 0, 0];
+       for (let i = 0; i < 3; ++i) {
+         const c = parseInt(low.slice(adv * i, adv * i + adv), 16);
+         result[i] = adv === 1 ? c << 4 : adv === 2 ? c : adv === 3 ? c >> 4 : c >> 8;
+       }
+-      return result;
++      return [result[0], result[1], result[2]];
+     }
+   }
+ 
+diff -ruN a/src/common/InputHandler.ts b/src/common/InputHandler.ts
+--- a/src/common/InputHandler.ts
++++ b/src/common/InputHandler.ts
+@@ -22,7 +22,7 @@
+ import { DcsHandler } from './parser/DcsParser';
+ import { ApcHandler } from './parser/ApcParser';
+ import { parseColor } from './input/XParseColor';
+-import { Emitter } from './Event';
++import { Emitter, VoidEmitter } from './Event';
+ import { XTERM_VERSION } from './Version';
+ 
+ /**
+@@ -112,15 +112,15 @@
+ 
+   private _activeBuffer: IBuffer;
+ 
+-  private readonly _onRequestBell = this._register(new Emitter<void>());
++  private readonly _onRequestBell = this._register(new VoidEmitter());
+   public readonly onRequestBell = this._onRequestBell.event;
+   private readonly _onRequestRefreshRows = this._register(new Emitter<{ start: number, end: number } | undefined>());
+   public readonly onRequestRefreshRows = this._onRequestRefreshRows.event;
+-  private readonly _onRequestReset = this._register(new Emitter<void>());
++  private readonly _onRequestReset = this._register(new VoidEmitter());
+   public readonly onRequestReset = this._onRequestReset.event;
+-  private readonly _onRequestSendFocus = this._register(new Emitter<void>());
++  private readonly _onRequestSendFocus = this._register(new VoidEmitter());
+   public readonly onRequestSendFocus = this._onRequestSendFocus.event;
+-  private readonly _onRequestSyncScrollBar = this._register(new Emitter<void>());
++  private readonly _onRequestSyncScrollBar = this._register(new VoidEmitter());
+   public readonly onRequestSyncScrollBar = this._onRequestSyncScrollBar.event;
+   private readonly _onRequestWindowsOptionsReport = this._register(new Emitter<WindowsOptionsReportType>());
+   public readonly onRequestWindowsOptionsReport = this._onRequestWindowsOptionsReport.event;
+@@ -129,9 +129,9 @@
+   public readonly onA11yChar = this._onA11yChar.event;
+   private readonly _onA11yTab = this._register(new Emitter<number>());
+   public readonly onA11yTab = this._onA11yTab.event;
+-  private readonly _onCursorMove = this._register(new Emitter<void>());
++  private readonly _onCursorMove = this._register(new VoidEmitter());
+   public readonly onCursorMove = this._onCursorMove.event;
+-  private readonly _onLineFeed = this._register(new Emitter<void>());
++  private readonly _onLineFeed = this._register(new VoidEmitter());
+   public readonly onLineFeed = this._onLineFeed.event;
+   private readonly _onScroll = this._register(new Emitter<number>());
+   public readonly onScroll = this._onScroll.event;
+@@ -139,7 +139,7 @@
+   public readonly onTitleChange = this._onTitleChange.event;
+   private readonly _onColor = this._register(new Emitter<IColorEvent>());
+   public readonly onColor = this._onColor.event;
+-  private readonly _onRequestColorSchemeQuery = this._register(new Emitter<void>());
++  private readonly _onRequestColorSchemeQuery = this._register(new VoidEmitter());
+   public readonly onRequestColorSchemeQuery = this._onRequestColorSchemeQuery.event;
+ 
+   private _parseStack: IParseStack = {
+@@ -390,8 +390,10 @@
+     // log a limited warning about an async handler taking too long
+     if (this._logService.logLevel <= LogLevelEnum.WARN) {
+       let slowTimeout: ReturnType<typeof setTimeout> | undefined;
++      // native: scriptc rejects only with Error values; compared by identity below.
++      const slowError = new Error('#SLOW_TIMEOUT');
+       const slowPromise = new Promise<never>((_res, rej) => {
+-        slowTimeout = setTimeout(() => rej('#SLOW_TIMEOUT'), Constants.SLOW_ASYNC_LIMIT);
++        slowTimeout = setTimeout(() => rej(slowError), Constants.SLOW_ASYNC_LIMIT);
+       });
+       Promise.race([p, slowPromise])
+         .then(() => {
+@@ -402,7 +404,7 @@
+           if (slowTimeout !== undefined) {
+             clearTimeout(slowTimeout);
+           }
+-          if (err !== '#SLOW_TIMEOUT') {
++          if (err !== slowError) {
+             throw err;
+           }
+           console.warn(`async parser handler taking longer than ${Constants.SLOW_ASYNC_LIMIT} ms`);
+@@ -433,6 +435,8 @@
+     let cursorStartY = this._activeBuffer.y;
+     let start = 0;
+     const wasPaused = this._parseStack.paused;
++    // native: scriptc reads .length of a string | Uint8Array union only after narrowing.
++    const dataLength = typeof data === 'string' ? data.length : data.length;
+ 
+     if (wasPaused) {
+       // assumption: _parseBuffer never mutates between async calls
+@@ -443,7 +447,7 @@
+       cursorStartX = this._parseStack.cursorStartX;
+       cursorStartY = this._parseStack.cursorStartY;
+       this._parseStack.paused = false;
+-      if (data.length > Constants.MAX_PARSEBUFFER_LENGTH) {
++      if (dataLength > Constants.MAX_PARSEBUFFER_LENGTH) {
+         start = this._parseStack.position + Constants.MAX_PARSEBUFFER_LENGTH;
+       }
+     }
+@@ -460,9 +464,9 @@
+     }
+ 
+     // resize input buffer if needed
+-    if (this._parseBuffer.length < data.length) {
++    if (this._parseBuffer.length < dataLength) {
+       if (this._parseBuffer.length < Constants.MAX_PARSEBUFFER_LENGTH) {
+-        this._parseBuffer = new Uint32Array(Math.min(data.length, Constants.MAX_PARSEBUFFER_LENGTH));
++        this._parseBuffer = new Uint32Array(Math.min(dataLength, Constants.MAX_PARSEBUFFER_LENGTH));
+       }
+     }
+ 
+@@ -473,9 +477,9 @@
+     }
+ 
+     // process big data in smaller chunks
+-    if (data.length > Constants.MAX_PARSEBUFFER_LENGTH) {
+-      for (let i = start; i < data.length; i += Constants.MAX_PARSEBUFFER_LENGTH) {
+-        const end = i + Constants.MAX_PARSEBUFFER_LENGTH < data.length ? i + Constants.MAX_PARSEBUFFER_LENGTH : data.length;
++    if (dataLength > Constants.MAX_PARSEBUFFER_LENGTH) {
++      for (let i = start; i < dataLength; i += Constants.MAX_PARSEBUFFER_LENGTH) {
++        const end = i + Constants.MAX_PARSEBUFFER_LENGTH < dataLength ? i + Constants.MAX_PARSEBUFFER_LENGTH : dataLength;
+         const len = (typeof data === 'string')
+           ? this._stringDecoder.decode(data.substring(i, end), this._parseBuffer)
+           : this._utf8Decoder.decode(data.subarray(i, end), this._parseBuffer);
+@@ -1809,7 +1813,7 @@
+           this._coreService.modes.insertMode = true;
+           break;
+         case 20:
+-          this._optionsService.options.convertEol = true;
++          this._optionsService.setOption('convertEol', true);
+           break;
+       }
+     }
+@@ -1963,7 +1967,7 @@
+           break;
+         case 12:
+           if (this._optionsService.rawOptions.quirks?.allowSetCursorBlink) {
+-            this._optionsService.options.cursorBlink = true;
++            this._optionsService.setOption('cursorBlink', true);
+           }
+           break;
+         case 45:
+@@ -2015,10 +2019,9 @@
+           this.saveCursor();
+           break;
+         case 1049: // alt screen buffer cursor
+-          this.saveCursor();
+-        // FALL-THROUGH
+         case 47: // alt screen buffer
+         case 1047: // alt screen buffer
++          if (params.params[i] === 1049) this.saveCursor();
+           // Swap kitty keyboard flags: save main, restore alt
+           if (this._optionsService.rawOptions.vtExtensions?.kittyKeyboard) {
+             const state = this._coreService.kittyKeyboard;
+@@ -2079,7 +2082,7 @@
+           this._coreService.modes.insertMode = false;
+           break;
+         case 20:
+-          this._optionsService.options.convertEol = false;
++          this._optionsService.setOption('convertEol', false);
+           break;
+       }
+     }
+@@ -2222,7 +2225,7 @@
+           break;
+         case 12:
+           if (this._optionsService.rawOptions.quirks?.allowSetCursorBlink) {
+-            this._optionsService.options.cursorBlink = false;
++            this._optionsService.setOption('cursorBlink', false);
+           }
+           break;
+         case 45:
+@@ -3655,7 +3658,7 @@
+   public end!: number;
+ 
+   constructor(
+-    @IBufferService private readonly _bufferService: IBufferService
++    private readonly _bufferService: IBufferService
+   ) {
+     this.clearRange();
+   }
+diff -ruN a/src/common/parser/ApcParser.ts b/src/common/parser/ApcParser.ts
+--- a/src/common/parser/ApcParser.ts
++++ b/src/common/parser/ApcParser.ts
+@@ -20,7 +20,7 @@
+  * The identifier is the character code of the first byte after ESC _.
+  */
+ export class ApcParser implements IApcParser {
+-  private _handlers: IHandlerCollection<IApcHandler> = Object.create(null);
++  private _handlers: IHandlerCollection<IApcHandler> = new Map();
+   private _active = EMPTY_HANDLERS;
+   private _ident: number = 0;
+   private _handlerFb: ApcFallbackHandlerType = () => { };
+@@ -36,8 +36,11 @@
+    * @param handler The handler to register
+    */
+   public registerHandler(ident: number, handler: IApcHandler): IDisposable {
+-    this._handlers[ident] ??= [];
+-    const handlerList = this._handlers[ident];
++    let handlerList = this._handlers.get(ident);
++    if (!handlerList) {
++      handlerList = [];
++      this._handlers.set(ident, handlerList);
++    }
+     handlerList.push(handler);
+     return {
+       dispose: () => {
+@@ -50,7 +53,7 @@
+   }
+ 
+   public clearHandler(ident: number): void {
+-    if (this._handlers[ident]) delete this._handlers[ident];
++    this._handlers.delete(ident);
+   }
+ 
+   public setHandlerFallback(handler: ApcFallbackHandlerType): void {
+@@ -58,7 +61,7 @@
+   }
+ 
+   public dispose(): void {
+-    this._handlers = Object.create(null);
++    this._handlers = new Map();
+     this._handlerFb = () => { };
+     this._active = EMPTY_HANDLERS;
+   }
+@@ -79,7 +82,7 @@
+     // always reset leftover handlers
+     this.reset();
+     this._ident = ident;
+-    this._active = this._handlers[ident] || EMPTY_HANDLERS;
++    this._active = this._handlers.get(ident) || EMPTY_HANDLERS;
+     if (!this._active.length) {
+       this._handlerFb(this._ident, 'START');
+     } else {
+diff -ruN a/src/common/parser/DcsParser.ts b/src/common/parser/DcsParser.ts
+--- a/src/common/parser/DcsParser.ts
++++ b/src/common/parser/DcsParser.ts
+@@ -13,7 +13,7 @@
+ const EMPTY_HANDLERS: IDcsHandler[] = [];
+ 
+ export class DcsParser implements IDcsParser {
+-  private _handlers: IHandlerCollection<IDcsHandler> = Object.create(null);
++  private _handlers: IHandlerCollection<IDcsHandler> = new Map();
+   private _active: IDcsHandler[] = EMPTY_HANDLERS;
+   private _ident: number = 0;
+   private _handlerFb: DcsFallbackHandlerType = () => { };
+@@ -24,14 +24,17 @@
+   };
+ 
+   public dispose(): void {
+-    this._handlers = Object.create(null);
++    this._handlers = new Map();
+     this._handlerFb = () => { };
+     this._active = EMPTY_HANDLERS;
+   }
+ 
+   public registerHandler(ident: number, handler: IDcsHandler): IDisposable {
+-    this._handlers[ident] ??= [];
+-    const handlerList = this._handlers[ident];
++    let handlerList = this._handlers.get(ident);
++    if (!handlerList) {
++      handlerList = [];
++      this._handlers.set(ident, handlerList);
++    }
+     handlerList.push(handler);
+     return {
+       dispose: () => {
+@@ -44,7 +47,7 @@
+   }
+ 
+   public clearHandler(ident: number): void {
+-    if (this._handlers[ident]) delete this._handlers[ident];
++    this._handlers.delete(ident);
+   }
+ 
+   public setHandlerFallback(handler: DcsFallbackHandlerType): void {
+@@ -67,7 +70,7 @@
+     // always reset leftover handlers
+     this.reset();
+     this._ident = ident;
+-    this._active = this._handlers[ident] || EMPTY_HANDLERS;
++    this._active = this._handlers.get(ident) || EMPTY_HANDLERS;
+     if (!this._active.length) {
+       this._handlerFb(this._ident, 'HOOK', params);
+     } else {
+diff -ruN a/src/common/parser/EscapeSequenceParser.ts b/src/common/parser/EscapeSequenceParser.ts
+--- a/src/common/parser/EscapeSequenceParser.ts
++++ b/src/common/parser/EscapeSequenceParser.ts
+@@ -101,14 +101,14 @@
+ 
+   // range macro for byte
+   const BYTE_VALUES = 256;
+-  const blueprint = Array.apply(null, Array(BYTE_VALUES)).map((unused: any, i: number) => i);
++  const blueprint = Array.from({ length: BYTE_VALUES }, (unused: unknown, i: number) => i);
+   const r = (start: number, end: number): number[] => blueprint.slice(start, end);
+ 
+   // Default definitions.
+   const PRINTABLES = r(0x20, 0x7f); // 0x20 (SP) included, 0x7F (DEL) excluded
+   const EXECUTABLES = r(0x00, 0x18);
+   EXECUTABLES.push(0x19);
+-  EXECUTABLES.push.apply(EXECUTABLES, r(0x1c, 0x20));
++  EXECUTABLES.push(...r(0x1c, 0x20));
+ 
+   const states: number[] = r(ParserState.GROUND, ParserState.STATE_LENGTH);
+ 
+@@ -260,6 +260,10 @@
+  *
+  * TODO: implement error recovery hook via error handler return values
+  */
++// Read-only stand-ins for an absent handler list (Map.get returns undefined).
++const NO_CSI_HANDLERS: CsiHandlerType[] = [];
++const NO_ESC_HANDLERS: EscHandlerType[] = [];
++
+ export class EscapeSequenceParser extends Disposable implements IEscapeSequenceParser {
+   public initialState: number;
+   public currentState: number;
+@@ -271,7 +275,7 @@
+ 
+   // handler lookup containers
+   protected _printHandler: PrintHandlerType;
+-  protected _executeHandlers: { [flag: number]: ExecuteHandlerType };
++  protected _executeHandlers: Map<number, ExecuteHandlerType>;
+   // fast path for EXE bytes < 0x18
+   protected _executeHandlersArr: (ExecuteHandlerType | undefined)[];
+   protected _csiHandlers: IHandlerCollection<CsiHandlerType>;
+@@ -316,15 +320,15 @@
+     this._escHandlerFb = (ident: number): void => { };
+     this._errorHandlerFb = (state: IParsingState): IParsingState => state;
+     this._printHandler = this._printHandlerFb;
+-    this._executeHandlers = Object.create(null);
+-    this._executeHandlersArr = new Array(0x18).fill(undefined);
+-    this._csiHandlers = Object.create(null);
+-    this._escHandlers = Object.create(null);
++    this._executeHandlers = new Map();
++    this._executeHandlersArr = new Array<ExecuteHandlerType | undefined>(0x18).fill(undefined);
++    this._csiHandlers = new Map();
++    this._escHandlers = new Map();
+     this._register(toDisposable(() => {
+-      this._csiHandlers = Object.create(null);
+-      this._executeHandlers = Object.create(null);
+-      this._executeHandlersArr = new Array(0x18).fill(undefined);
+-      this._escHandlers = Object.create(null);
++      this._csiHandlers = new Map();
++      this._executeHandlers = new Map();
++      this._executeHandlersArr = new Array<ExecuteHandlerType | undefined>(0x18).fill(undefined);
++      this._escHandlers = new Map();
+     }));
+     this._oscParser = this._register(new OscParser());
+     this._dcsParser = this._register(new DcsParser());
+@@ -390,8 +394,11 @@
+ 
+   public registerEscHandler(id: IFunctionIdentifier, handler: EscHandlerType): IDisposable {
+     const ident = this._identifier(id, [0x30, 0x7e]);
+-    this._escHandlers[ident] ??= [];
+-    const handlerList = this._escHandlers[ident];
++    let handlerList = this._escHandlers.get(ident);
++    if (!handlerList) {
++      handlerList = [];
++      this._escHandlers.set(ident, handlerList);
++    }
+     handlerList.push(handler);
+     return {
+       dispose: () => {
+@@ -403,7 +410,7 @@
+     };
+   }
+   public clearEscHandler(id: IFunctionIdentifier): void {
+-    if (this._escHandlers[this._identifier(id, [0x30, 0x7e])]) delete this._escHandlers[this._identifier(id, [0x30, 0x7e])];
++    this._escHandlers.delete(this._identifier(id, [0x30, 0x7e]));
+   }
+   public setEscHandlerFallback(handler: EscFallbackHandlerType): void {
+     this._escHandlerFb = handler;
+@@ -411,12 +418,12 @@
+ 
+   public setExecuteHandler(flag: string, handler: ExecuteHandlerType): void {
+     const code = flag.charCodeAt(0);
+-    this._executeHandlers[code] = handler;
++    this._executeHandlers.set(code, handler);
+     if (code < 0x18) this._executeHandlersArr[code] = handler;
+   }
+   public clearExecuteHandler(flag: string): void {
+     const code = flag.charCodeAt(0);
+-    if (this._executeHandlers[code]) delete this._executeHandlers[code];
++    this._executeHandlers.delete(code);
+     if (code < 0x18) this._executeHandlersArr[code] = undefined;
+   }
+   public setExecuteHandlerFallback(handler: ExecuteFallbackHandlerType): void {
+@@ -425,8 +432,11 @@
+ 
+   public registerCsiHandler(id: IFunctionIdentifier, handler: CsiHandlerType): IDisposable {
+     const ident = this._identifier(id);
+-    this._csiHandlers[ident] ??= [];
+-    const handlerList = this._csiHandlers[ident];
++    let handlerList = this._csiHandlers.get(ident);
++    if (!handlerList) {
++      handlerList = [];
++      this._csiHandlers.set(ident, handlerList);
++    }
+     handlerList.push(handler);
+     return {
+       dispose: () => {
+@@ -438,7 +448,7 @@
+     };
+   }
+   public clearCsiHandler(id: IFunctionIdentifier): void {
+-    if (this._csiHandlers[this._identifier(id)]) delete this._csiHandlers[this._identifier(id)];
++    this._csiHandlers.delete(this._identifier(id));
+   }
+   public setCsiHandlerFallback(callback: (ident: number, params: IParams) => void): void {
+     this._csiHandlerFb = callback;
+@@ -714,7 +724,7 @@
+           } else if (ch === 0x3a) {
+             this._params.addSubParam(-1);
+           } else if (ch >= 0x40 && ch <= 0x7e) {
+-            const handlers = this._csiHandlers[this._collect << 8 | ch];
++            const handlers = this._csiHandlers.get(this._collect << 8 | ch) ?? NO_CSI_HANDLERS;
+             let j = handlers ? handlers.length - 1 : -1;
+             for (; j >= 0; j--) {
+               handlerResult = handlers[j](this._params);
+@@ -770,7 +780,8 @@
+           i = c - 1;
+           break;
+         case ParserAction.EXECUTE:
+-          if (this._executeHandlers[code]) this._executeHandlers[code]();
++          const executeHandler = this._executeHandlers.get(code);
++          if (executeHandler) executeHandler();
+           else this._executeHandlerFb(code);
+           this.precedingJoinState = 0;
+           break;
+@@ -791,7 +802,7 @@
+           break;
+         case ParserAction.CSI_DISPATCH:
+           // Trigger CSI Handler
+-          const handlers = this._csiHandlers[this._collect << 8 | code];
++          const handlers = this._csiHandlers.get(this._collect << 8 | code) ?? NO_CSI_HANDLERS;
+           let j = handlers ? handlers.length - 1 : -1;
+           for (; j >= 0; j--) {
+             // true means success and to stop bubbling
+@@ -830,7 +841,7 @@
+           this._collect |= code;
+           break;
+         case ParserAction.ESC_DISPATCH:
+-          const handlersEsc = this._escHandlers[this._collect << 8 | code];
++          const handlersEsc = this._escHandlers.get(this._collect << 8 | code) ?? NO_ESC_HANDLERS;
+           let jj = handlersEsc ? handlersEsc.length - 1 : -1;
+           for (; jj >= 0; jj--) {
+             // true means success and to stop bubbling
+diff -ruN a/src/common/parser/OscParser.ts b/src/common/parser/OscParser.ts
+--- a/src/common/parser/OscParser.ts
++++ b/src/common/parser/OscParser.ts
+@@ -15,7 +15,7 @@
+   private _state = OscState.START;
+   private _active = EMPTY_HANDLERS;
+   private _id = -1;
+-  private _handlers: IHandlerCollection<IOscHandler> = Object.create(null);
++  private _handlers: IHandlerCollection<IOscHandler> = new Map();
+   private _handlerFb: OscFallbackHandlerType = () => { };
+   private _stack: ISubParserStackState = {
+     paused: false,
+@@ -24,8 +24,11 @@
+   };
+ 
+   public registerHandler(ident: number, handler: IOscHandler): IDisposable {
+-    this._handlers[ident] ??= [];
+-    const handlerList = this._handlers[ident];
++    let handlerList = this._handlers.get(ident);
++    if (!handlerList) {
++      handlerList = [];
++      this._handlers.set(ident, handlerList);
++    }
+     handlerList.push(handler);
+     return {
+       dispose: () => {
+@@ -37,14 +40,14 @@
+     };
+   }
+   public clearHandler(ident: number): void {
+-    if (this._handlers[ident]) delete this._handlers[ident];
++    this._handlers.delete(ident);
+   }
+   public setHandlerFallback(handler: OscFallbackHandlerType): void {
+     this._handlerFb = handler;
+   }
+ 
+   public dispose(): void {
+-    this._handlers = Object.create(null);
++    this._handlers = new Map();
+     this._handlerFb = () => { };
+     this._active = EMPTY_HANDLERS;
+   }
+@@ -63,7 +66,7 @@
+   }
+ 
+   private _start(): void {
+-    this._active = this._handlers[this._id] || EMPTY_HANDLERS;
++    this._active = this._handlers.get(this._id) || EMPTY_HANDLERS;
+     if (!this._active.length) {
+       this._handlerFb(this._id, 'START');
+     } else {
+diff -ruN a/src/common/parser/Types.ts b/src/common/parser/Types.ts
+--- a/src/common/parser/Types.ts
++++ b/src/common/parser/Types.ts
+@@ -245,9 +245,7 @@
+   final: string;
+ }
+ 
+-export interface IHandlerCollection<T> {
+-  [key: string]: T[];
+-}
++export type IHandlerCollection<T> = Map<number, T[]>;
+ 
+ /**
+  * Types for async parser support.
+diff -ruN a/src/common/Platform.ts b/src/common/Platform.ts
+--- a/src/common/Platform.ts
++++ b/src/common/Platform.ts
+@@ -17,9 +17,11 @@
+ // navigator.userAgent is also checked here because bundling with the process module can cause
+ // issues otherwise. Note that navigator exists in Node.js 21+ but the userAgent is
+ // "Node.js/<version>".
+-export const isNode = (typeof process !== 'undefined' && 'title' in (process as any) && (typeof navigator === 'undefined' || navigator.userAgent.startsWith('Node.js/'))) ? true : false;
+-const userAgent = (isNode) ? 'node' : navigator.userAgent;
+-const platform = (isNode) ? 'node' : navigator.platform;
++// native: this copy only runs in scriptc binaries, which are Node.js programs; upstream detects
++// Node.js from `process.title` and `navigator.userAgent`, which Node.js answers with true.
++export const isNode = true;
++const userAgent: string = 'node';
++const platform: string = 'node';
+ 
+ export const isFirefox = userAgent.includes('Firefox');
+ export const isChrome = userAgent.includes('Chrome');
+diff -ruN a/src/common/public/AddonManager.ts b/src/common/public/AddonManager.ts
+--- a/src/common/public/AddonManager.ts
++++ b/src/common/public/AddonManager.ts
+@@ -3,10 +3,15 @@
+  * @license MIT
+  */
+ 
+-import { ITerminalAddon, IDisposable, Terminal } from '../../../typings/xterm';
++import { IDisposable } from '../../../typings/xterm';
++import type { ITerminalAddon, Terminal } from '../../../../types';
+ 
++// native: addons are held as closures made in a generic loadAddon (scriptc compiles a copy per
++// addon class, and cannot hold different addon classes in one interface-typed slot). Upstream
++// also replaces each addon's dispose method so that disposing an addon directly unloads it;
++// scriptc cannot assign to methods, so here an addon disposed directly is disposed again when
++// the terminal is disposed.
+ export interface ILoadedAddon {
+-  instance: ITerminalAddon;
+   dispose: () => void;
+   isDisposed: boolean;
+ }
+@@ -16,19 +21,17 @@
+ 
+   public dispose(): void {
+     for (let i = this._addons.length - 1; i >= 0; i--) {
+-      this._addons[i].instance.dispose();
++      this._wrappedAddonDispose(this._addons[i]);
+     }
+   }
+ 
+-  public loadAddon(terminal: Terminal, instance: ITerminalAddon): void {
++  public loadAddon<T extends ITerminalAddon>(terminal: Terminal, instance: T): void {
+     const loadedAddon: ILoadedAddon = {
+-      instance,
+-      dispose: instance.dispose,
++      dispose: () => instance.dispose(),
+       isDisposed: false
+     };
+     this._addons.push(loadedAddon);
+-    instance.dispose = () => this._wrappedAddonDispose(loadedAddon);
+-    instance.activate(terminal as any);
++    instance.activate(terminal);
+   }
+ 
+   private _wrappedAddonDispose(loadedAddon: ILoadedAddon): void {
+@@ -47,7 +50,7 @@
+       throw new Error('Could not dispose an addon that has not been loaded');
+     }
+     loadedAddon.isDisposed = true;
+-    loadedAddon.dispose.apply(loadedAddon.instance);
++    loadedAddon.dispose();
+     this._addons.splice(index, 1);
+   }
+ }
+diff -ruN a/src/common/public/BufferApiView.ts b/src/common/public/BufferApiView.ts
+--- a/src/common/public/BufferApiView.ts
++++ b/src/common/public/BufferApiView.ts
+@@ -5,9 +5,11 @@
+ 
+ import { IBuffer as IBufferApi, IBufferLine as IBufferLineApi, IBufferCell as IBufferCellApi } from '../../../typings/xterm';
+ import { IBuffer } from '../buffer/Types';
++import { BufferLine } from '../buffer/BufferLine';
+ import { CellData } from '../buffer/CellData';
+ 
+-export class BufferApiView implements IBufferApi {
++// native: no `implements` of the typings; the native build types the public API by these classes.
++export class BufferApiView {
+   constructor(
+     private _buffer: IBuffer,
+     public readonly type: 'normal' | 'alternate'
+@@ -23,9 +25,9 @@
+   public get viewportY(): number { return this._buffer.ydisp; }
+   public get baseY(): number { return this._buffer.ybase; }
+   public get length(): number { return this._buffer.lines.length; }
+-  public getLine(y: number): IBufferLineApi | undefined {
+-    const line = this._buffer.lines.get(y);
+-    return line && line as unknown as IBufferLineApi;
++  public getLine(y: number): BufferLine | undefined {
++    // native: every line in the buffer is a BufferLine.
++    return this._buffer.lines.get(y) as BufferLine | undefined;
+   }
+-  public getNullCell(): IBufferCellApi { return new CellData(); }
++  public getNullCell(): CellData { return new CellData(); }
+ }
+diff -ruN a/src/common/public/BufferNamespaceApi.ts b/src/common/public/BufferNamespaceApi.ts
+--- a/src/common/public/BufferNamespaceApi.ts
++++ b/src/common/public/BufferNamespaceApi.ts
+@@ -9,11 +9,12 @@
+ import { Disposable } from '../Lifecycle';
+ import { Emitter } from '../Event';
+ 
+-export class BufferNamespaceApi extends Disposable implements IBufferNamespaceApi {
++// native: no `implements` of the typings; the native build types the public API by these classes.
++export class BufferNamespaceApi extends Disposable {
+   private _normal: BufferApiView;
+   private _alternate: BufferApiView;
+ 
+-  private readonly _onBufferChange = this._register(new Emitter<IBufferApi>());
++  private readonly _onBufferChange = this._register(new Emitter<BufferApiView>());
+   public readonly onBufferChange = this._onBufferChange.event;
+ 
+   constructor(private _core: ICoreTerminal) {
+@@ -22,15 +23,15 @@
+     this._alternate = new BufferApiView(this._core.buffers.alt, 'alternate');
+     this._register(this._core.buffers.onBufferActivate(() => this._onBufferChange.fire(this.active)));
+   }
+-  public get active(): IBufferApi {
++  public get active(): BufferApiView {
+     if (this._core.buffers.active === this._core.buffers.normal) { return this.normal; }
+     if (this._core.buffers.active === this._core.buffers.alt) { return this.alternate; }
+     throw new Error('Active buffer is neither normal nor alternate');
+   }
+-  public get normal(): IBufferApi {
++  public get normal(): BufferApiView {
+     return this._normal.init(this._core.buffers.normal);
+   }
+-  public get alternate(): IBufferApi {
++  public get alternate(): BufferApiView {
+     return this._alternate.init(this._core.buffers.alt);
+   }
+ }
+diff -ruN a/src/common/services/BufferService.ts b/src/common/services/BufferService.ts
+--- a/src/common/services/BufferService.ts
++++ b/src/common/services/BufferService.ts
+@@ -35,8 +35,8 @@
+   private _cachedBlankLine: IBufferLine | undefined;
+ 
+   constructor(
+-    @IOptionsService optionsService: IOptionsService,
+-    @ILogService logService: ILogService
++    optionsService: IOptionsService,
++    logService: ILogService
+   ) {
+     super();
+     this.cols = Math.max(optionsService.rawOptions.cols || 0, BufferServiceConstants.MINIMUM_COLS);
+diff -ruN a/src/common/services/CoreService.ts b/src/common/services/CoreService.ts
+--- a/src/common/services/CoreService.ts
++++ b/src/common/services/CoreService.ts
+@@ -6,7 +6,7 @@
+ import { Disposable } from '../Lifecycle';
+ import { IDecPrivateModes, IKittyKeyboardState, IModes } from '../Types';
+ import { IBufferService, ICoreService, ILogService, IOptionsService } from './Services';
+-import { Emitter } from '../Event';
++import { Emitter, VoidEmitter } from '../Event';
+ 
+ const DEFAULT_MODES: IModes = Object.freeze({
+   insertMode: false
+@@ -46,17 +46,17 @@
+ 
+   private readonly _onData = this._register(new Emitter<string>());
+   public readonly onData = this._onData.event;
+-  private readonly _onUserInput = this._register(new Emitter<void>());
++  private readonly _onUserInput = this._register(new VoidEmitter());
+   public readonly onUserInput = this._onUserInput.event;
+   private readonly _onBinary = this._register(new Emitter<string>());
+   public readonly onBinary = this._onBinary.event;
+-  private readonly _onRequestScrollToBottom = this._register(new Emitter<void>());
++  private readonly _onRequestScrollToBottom = this._register(new VoidEmitter());
+   public readonly onRequestScrollToBottom = this._onRequestScrollToBottom.event;
+ 
+   constructor(
+-    @IBufferService private readonly _bufferService: IBufferService,
+-    @ILogService private readonly _logService: ILogService,
+-    @IOptionsService private readonly _optionsService: IOptionsService
++    private readonly _bufferService: IBufferService,
++    private readonly _logService: ILogService,
++    private readonly _optionsService: IOptionsService
+   ) {
+     super();
+     this.isCursorInitialized = _optionsService.rawOptions.showCursorImmediately ?? false;
+diff -ruN a/src/common/services/LogService.ts b/src/common/services/LogService.ts
+--- a/src/common/services/LogService.ts
++++ b/src/common/services/LogService.ts
+@@ -5,6 +5,7 @@
+ 
+ import { Disposable } from '../Lifecycle';
+ import { ILogService, IOptionsService, LogLevelEnum } from './Services';
++import type { ILogger } from '../../../typings/xterm';
+ 
+ type LogType = (message?: any, ...optionalParams: any[]) => void;
+ 
+@@ -31,6 +32,12 @@
+ 
+ const LOG_PREFIX = 'xterm.js: ';
+ 
++function loggerMethod(logger: ILogger | null, level: 'trace' | 'debug' | 'info' | 'warn' | 'error'): LogType | undefined {
++  if (!logger) return undefined;
++  const method: LogType = (message?: any, ...optionalParams: any[]) => logger[level](message, ...optionalParams);
++  return method;
++}
++
+ export class LogService extends Disposable implements ILogService {
+   public serviceBrand: any;
+ 
+@@ -38,7 +45,7 @@
+   public get logLevel(): LogLevelEnum { return this._logLevel; }
+ 
+   constructor(
+-    @IOptionsService private readonly _optionsService: IOptionsService
++    private readonly _optionsService: IOptionsService
+   ) {
+     super();
+     this._updateLogLevel();
+@@ -59,36 +66,37 @@
+ 
+   private _log(type: LogType, message: string, optionalParams: any[]): void {
+     this._evalLazyOptionalParams(optionalParams);
+-    type.call(console, (this._optionsService.options.logger ? '' : LOG_PREFIX) + message, ...optionalParams);
++    // native: direct calls instead of .call and .bind; Node console methods are bound.
++    type((this._optionsService.options.logger ? '' : LOG_PREFIX) + message, ...optionalParams);
+   }
+ 
+   public trace(message: string, ...optionalParams: any[]): void {
+     if (this._logLevel <= LogLevelEnum.TRACE) {
+-      this._log(this._optionsService.options.logger?.trace.bind(this._optionsService.options.logger) ?? console.log, message, optionalParams);
++      this._log(loggerMethod(this._optionsService.options.logger, 'trace') ?? console.log, message, optionalParams);
+     }
+   }
+ 
+   public debug(message: string, ...optionalParams: any[]): void {
+     if (this._logLevel <= LogLevelEnum.DEBUG) {
+-      this._log(this._optionsService.options.logger?.debug.bind(this._optionsService.options.logger) ?? console.log, message, optionalParams);
++      this._log(loggerMethod(this._optionsService.options.logger, 'debug') ?? console.log, message, optionalParams);
+     }
+   }
+ 
+   public info(message: string, ...optionalParams: any[]): void {
+     if (this._logLevel <= LogLevelEnum.INFO) {
+-      this._log(this._optionsService.options.logger?.info.bind(this._optionsService.options.logger) ?? console.info, message, optionalParams);
++      this._log(loggerMethod(this._optionsService.options.logger, 'info') ?? console.info, message, optionalParams);
+     }
+   }
+ 
+   public warn(message: string, ...optionalParams: any[]): void {
+     if (this._logLevel <= LogLevelEnum.WARN) {
+-      this._log(this._optionsService.options.logger?.warn.bind(this._optionsService.options.logger) ?? console.warn, message, optionalParams);
++      this._log(loggerMethod(this._optionsService.options.logger, 'warn') ?? console.warn, message, optionalParams);
+     }
+   }
+ 
+   public error(message: string, ...optionalParams: any[]): void {
+     if (this._logLevel <= LogLevelEnum.ERROR) {
+-      this._log(this._optionsService.options.logger?.error.bind(this._optionsService.options.logger) ?? console.error, message, optionalParams);
++      this._log(loggerMethod(this._optionsService.options.logger, 'error') ?? console.error, message, optionalParams);
+     }
+   }
+ }
+diff -ruN a/src/common/services/OptionsService.ts b/src/common/services/OptionsService.ts
+--- a/src/common/services/OptionsService.ts
++++ b/src/common/services/OptionsService.ts
+@@ -88,8 +88,8 @@
+ 
+     // set up getters and setters for each option
+     this.rawOptions = defaultOptions;
+-    this.options = { ... defaultOptions };
+-    this._setupOptions();
++    // native: no per-option accessors; writes go through setOption.
++    this.options = defaultOptions;
+ 
+     // Clear out options that could link outside xterm.js as they could easily cause an embedder
+     // memory leak
+@@ -117,33 +117,16 @@
+     });
+   }
+ 
+-  private _setupOptions(): void {
+-    const getter = (propName: string): any => {
+-      if (!(propName in DEFAULT_OPTIONS)) {
+-        throw new Error(`No option with key "${propName}"`);
+-      }
+-      return this.rawOptions[propName];
+-    };
+-
+-    const setter = (propName: string, value: any): void => {
+-      if (!(propName in DEFAULT_OPTIONS)) {
+-        throw new Error(`No option with key "${propName}"`);
+-      }
+-
+-      value = this._sanitizeAndValidateOption(propName, value);
+-      // Don't fire an option change event if they didn't change
+-      if (this.rawOptions[propName] !== value) {
+-        this.rawOptions[propName] = value;
+-        this._onOptionChange.fire(propName);
+-      }
+-    };
++  public setOption(propName: string, value: any): void {
++    if (!(propName in DEFAULT_OPTIONS)) {
++      throw new Error(`No option with key "${propName}"`);
++    }
+ 
+-    for (const propName in this.rawOptions) {
+-      const desc = {
+-        get: getter.bind(this, propName),
+-        set: setter.bind(this, propName)
+-      };
+-      Object.defineProperty(this.options, propName, desc);
++    value = this._sanitizeAndValidateOption(propName, value);
++    // Don't fire an option change event if they didn't change
++    if (this.rawOptions[propName] !== value) {
++      this.rawOptions[propName] = value;
++      this._onOptionChange.fire(propName);
+     }
+   }
+ 
+@@ -177,10 +160,9 @@
+         }
+         break;
+       case 'cursorWidth':
+-        value = Math.floor(value);
+-        // Fall through for bounds check
+       case 'lineHeight':
+       case 'tabStopWidth':
++        if (key === 'cursorWidth') value = Math.floor(value);
+         if (value < 1) {
+           throw new Error(`${key} cannot be less than 1, value: ${value}`);
+         }
+diff -ruN a/src/common/services/OscLinkService.ts b/src/common/services/OscLinkService.ts
+--- a/src/common/services/OscLinkService.ts
++++ b/src/common/services/OscLinkService.ts
+@@ -24,7 +24,7 @@
+   private _dataByLinkId: Map<number, IOscLinkEntryNoId | IOscLinkEntryWithId> = new Map();
+ 
+   constructor(
+-    @IBufferService private readonly _bufferService: IBufferService
++    private readonly _bufferService: IBufferService
+   ) {
+   }
+ 
+diff -ruN a/src/common/services/Services.ts b/src/common/services/Services.ts
+--- a/src/common/services/Services.ts
++++ b/src/common/services/Services.ts
+@@ -6,10 +6,9 @@
+ import type { IDecoration, IDecorationOptions, ILinkHandler, ILogger, IWindowsPty, IOverviewRulerOptions } from '../../../typings/xterm';
+ import { CoreMouseEncoding, CoreMouseEventType, CursorInactiveStyle, CursorStyle, ICharset, IColor, ICoreMouseEvent, ICoreMouseProtocol, IDecPrivateModes, IDisposable, IKittyKeyboardState, IModes, IOscLinkData, IWindowOptions } from '../Types';
+ import { IAttributeData, IBuffer, IBufferSet } from '../buffer/Types';
+-import { createDecorator, IServiceIdentifier } from './ServiceRegistry';
+-import type { Emitter, IEvent } from '../Event';
++import type { IServiceIdentifier } from './ServiceRegistry';
++import type { Emitter, IEvent, VoidEmitter } from '../Event';
+ 
+-export const IBufferService = createDecorator<IBufferService>('BufferService');
+ export interface IBufferService {
+   serviceBrand: undefined;
+ 
+@@ -33,7 +32,6 @@
+   rowsChanged: boolean;
+ }
+ 
+-export const IMouseStateService = createDecorator<IMouseStateService>('MouseStateService');
+ export interface IMouseStateService {
+   serviceBrand: undefined;
+ 
+@@ -56,7 +54,6 @@
+   readonly isPixelEncoding: boolean;
+ }
+ 
+-export const ICoreService = createDecorator<ICoreService>('CoreService');
+ export interface ICoreService {
+   serviceBrand: undefined;
+ 
+@@ -95,7 +92,6 @@
+   triggerBinaryEvent(data: string): void;
+ }
+ 
+-export const ICharsetService = createDecorator<ICharsetService>('CharsetService');
+ export interface ICharsetService {
+   serviceBrand: undefined;
+ 
+@@ -127,7 +123,6 @@
+   : TArgs extends [...infer TFirst, infer TLast] ? TLast extends IBrandedService ? GetLeadingNonServiceArgs<TFirst> : TArgs
+     : never;
+ 
+-export const IInstantiationService = createDecorator<IInstantiationService>('InstantiationService');
+ export interface IInstantiationService {
+   serviceBrand: undefined;
+ 
+@@ -145,7 +140,6 @@
+   OFF = 5
+ }
+ 
+-export const ILogService = createDecorator<ILogService>('LogService');
+ export interface ILogService {
+   serviceBrand: undefined;
+ 
+@@ -158,7 +152,6 @@
+   error(message: any, ...optionalParams: any[]): void;
+ }
+ 
+-export const IOptionsService = createDecorator<IOptionsService>('OptionsService');
+ export interface IOptionsService {
+   serviceBrand: undefined;
+ 
+@@ -175,6 +168,7 @@
+    * all internal usage for performance reasons.
+    */
+   readonly options: Required<ITerminalOptions>;
++  setOption(propName: string, value: any): void;
+ 
+   /**
+    * Adds an event listener for when any option changes.
+@@ -302,7 +296,6 @@
+   colorSchemeQuery?: boolean;
+ }
+ 
+-export const IOscLinkService = createDecorator<IOscLinkService>('OscLinkService');
+ export interface IOscLinkService {
+   serviceBrand: undefined;
+   /**
+@@ -341,7 +334,6 @@
+  */
+ export type UnicodeCharWidth = 0 | 1 | 2;
+ 
+-export const IUnicodeService = createDecorator<IUnicodeService>('UnicodeService');
+ export interface IUnicodeService {
+   serviceBrand: undefined;
+   /** Register a Unicode version provider. */
+@@ -372,7 +364,6 @@
+   charProperties(codepoint: number, preceding: UnicodeCharProperties): UnicodeCharProperties;
+ }
+ 
+-export const IDecorationService = createDecorator<IDecorationService>('DecorationService');
+ export interface IDecorationService extends IDisposable {
+   serviceBrand: undefined;
+   readonly decorations: IterableIterator<IInternalDecoration>;
+diff -ruN a/src/common/TaskQueue.ts b/src/common/TaskQueue.ts
+--- a/src/common/TaskQueue.ts
++++ b/src/common/TaskQueue.ts
+@@ -29,10 +29,11 @@
+   timeRemaining(): number;
+ }
+ type CallbackWithDeadline = (deadline: ITaskDeadline) => void;
++type CallbackId = ReturnType<typeof setTimeout>;
+ 
+ abstract class TaskQueue implements ITaskQueue {
+   private _tasks: (() => boolean | void)[] = [];
+-  private _idleCallback?: number;
++  private _idleCallback?: CallbackId;
+   private _i = 0;
+   protected readonly _logService: ILogService;
+ 
+@@ -40,8 +41,8 @@
+     this._logService = logService;
+   }
+ 
+-  protected abstract _requestCallback(callback: CallbackWithDeadline): number;
+-  protected abstract _cancelCallback(identifier: number): void;
++  protected abstract _requestCallback(callback: CallbackWithDeadline): CallbackId;
++  protected abstract _cancelCallback(identifier: CallbackId): void;
+ 
+   public enqueue(task: () => boolean | void): void {
+     this._tasks.push(task);
+@@ -68,7 +69,7 @@
+ 
+   private _start(): void {
+     if (!this._idleCallback) {
+-      this._idleCallback = this._requestCallback(this._process.bind(this));
++      this._idleCallback = this._requestCallback(deadline => this._process(deadline));
+     }
+   }
+ 
+@@ -112,11 +113,11 @@
+  * and care should be taken to ensure they're non-urgent and will not introduce race conditions.
+  */
+ export class PriorityTaskQueue extends TaskQueue {
+-  protected _requestCallback(callback: CallbackWithDeadline): number {
++  protected _requestCallback(callback: CallbackWithDeadline): CallbackId {
+     return setTimeout(() => callback(this._createDeadline(16)));
+   }
+ 
+-  protected _cancelCallback(identifier: number): void {
++  protected _cancelCallback(identifier: CallbackId): void {
+     clearTimeout(identifier);
+   }
+ 
+@@ -128,16 +129,6 @@
+   }
+ }
+ 
+-class IdleTaskQueueInternal extends TaskQueue {
+-  protected _requestCallback(callback: IdleRequestCallback): number {
+-    return requestIdleCallback(callback);
+-  }
+-
+-  protected _cancelCallback(identifier: number): void {
+-    cancelIdleCallback(identifier);
+-  }
+-}
+-
+ /**
+  * A queue of that runs tasks over several idle callbacks, trying to respect the idle callback's
+  * deadline given by the environment. The tasks will run in the order they are enqueued, but they
+@@ -147,7 +138,7 @@
+  * This reverts to a {@link PriorityTaskQueue} if the environment does not support idle callbacks.
+  */
+ // eslint-disable-next-line @typescript-eslint/naming-convention
+-export const IdleTaskQueue = ('requestIdleCallback' in globalThis) ? IdleTaskQueueInternal : PriorityTaskQueue;
++export const IdleTaskQueue = PriorityTaskQueue;
+ 
+ /**
+  * An object that tracks a single debounced task that will run on the next idle frame. When called
+diff -ruN a/src/headless/public/Terminal.ts b/src/headless/public/Terminal.ts
+--- a/src/headless/public/Terminal.ts
++++ b/src/headless/public/Terminal.ts
+@@ -6,7 +6,8 @@
+ import { BufferNamespaceApi } from '../../common/public/BufferNamespaceApi';
+ import { ParserApi } from '../../common/public/ParserApi';
+ import { UnicodeApi } from '../../common/public/UnicodeApi';
+-import { IBufferNamespace as IBufferNamespaceApi, IMarker, IModes, IParser, ITerminalAddon, ITerminalInitOnlyOptions, IUnicodeHandling, Terminal as ITerminalApi } from '../../../typings/xterm-headless';
++import { IBufferNamespace as IBufferNamespaceApi, IMarker, IModes, IParser, ITerminalInitOnlyOptions, IUnicodeHandling, Terminal as ITerminalApi } from '../../../typings/xterm-headless';
++import type { ITerminalAddon } from '../../../../types';
+ import { Terminal as TerminalCore } from '../Terminal';
+ import { AddonManager } from '../../common/public/AddonManager';
+ import { ITerminalOptions } from '../../common/Types';
+@@ -17,10 +18,11 @@
+  */
+ const CONSTRUCTOR_ONLY_OPTIONS = ['cols', 'rows'];
+ 
+-export class Terminal extends Disposable implements ITerminalApi {
++// native: no `implements` of the typings; the native build types the public API by these classes.
++export class Terminal extends Disposable {
+   private _core: TerminalCore;
+   private _addonManager: AddonManager;
+-  private _parser: IParser | undefined;
++  private _parser: ParserApi | undefined;
+   private _buffer: BufferNamespaceApi | undefined;
+   private _publicOptions: Required<ITerminalOptions>;
+ 
+@@ -30,22 +32,8 @@
+     this._core = this._register(new TerminalCore(options));
+     this._addonManager = this._register(new AddonManager());
+ 
+-    this._publicOptions = { ... this._core.options };
+-    const getter = (propName: string): any => {
+-      return this._core.options[propName];
+-    };
+-    const setter = (propName: string, value: any): void => {
+-      this._checkReadonlyOptions(propName);
+-      this._core.options[propName] = value;
+-    };
+-
+-    for (const propName in this._core.options) {
+-      const desc = {
+-        get: getter.bind(this, propName),
+-        set: setter.bind(this, propName)
+-      };
+-      Object.defineProperty(this._publicOptions, propName, desc);
+-    }
++    // native: the core's options object itself; writes go through the options setter below.
++    this._publicOptions = this._core.options;
+   }
+ 
+   private _checkReadonlyOptions(propName: string): void {
+@@ -74,17 +62,17 @@
+   public get onTitleChange(): IEvent<string> { return this._core.onTitleChange; }
+   public get onWriteParsed(): IEvent<void> { return this._core.onWriteParsed; }
+ 
+-  public get parser(): IParser {
++  public get parser(): ParserApi {
+     this._parser ??= new ParserApi(this._core);
+     return this._parser;
+   }
+-  public get unicode(): IUnicodeHandling {
++  public get unicode(): UnicodeApi {
+     this._checkProposedApi();
+     return new UnicodeApi(this._core);
+   }
+   public get rows(): number { return this._core.rows; }
+   public get cols(): number { return this._core.cols; }
+-  public get buffer(): IBufferNamespaceApi {
++  public get buffer(): BufferNamespaceApi {
+     this._buffer ??= this._register(new BufferNamespaceApi(this._core));
+     return this._buffer;
+   }
+@@ -120,7 +108,8 @@
+   }
+   public set options(options: ITerminalOptions) {
+     for (const propName in options) {
+-      this._publicOptions[propName] = options[propName];
++      this._checkReadonlyOptions(propName);
++      this._core.optionsService.setOption(propName, options[propName]);
+     }
+   }
+   public input(data: string, wasUserInput: boolean = true): void {
+@@ -171,9 +160,9 @@
+   public reset(): void {
+     this._core.reset();
+   }
+-  public loadAddon(addon: ITerminalAddon): void {
++  public loadAddon<T extends ITerminalAddon>(addon: T): void {
+     // TODO: This could cause issues if the addon calls renderer apis
+-    this._addonManager.loadAddon(this as any, addon);
++    this._addonManager.loadAddon(this, addon);
+   }
+ 
+   private _verifyIntegers(...values: number[]): void {
+diff -ruN a/src/headless/Terminal.ts b/src/headless/Terminal.ts
+--- a/src/headless/Terminal.ts
++++ b/src/headless/Terminal.ts
+@@ -25,12 +25,12 @@
+ import { IBuffer, IMarker } from '../common/buffer/Types';
+ import { CoreTerminal } from '../common/CoreTerminal';
+ import { ITerminalOptions } from '../common/Types';
+-import { Emitter, EventUtils } from '../common/Event';
++import { Emitter, VoidEmitter, EventUtils } from '../common/Event';
+ 
+ export class Terminal extends CoreTerminal {
+-  private readonly _onBell = this._register(new Emitter<void>());
++  private readonly _onBell = this._register(new VoidEmitter());
+   public readonly onBell = this._onBell.event;
+-  private readonly _onCursorMove = this._register(new Emitter<void>());
++  private readonly _onCursorMove = this._register(new VoidEmitter());
+   public readonly onCursorMove = this._onCursorMove.event;
+   private readonly _onTitleChange = this._register(new Emitter<string>());
+   public readonly onTitleChange = this._onTitleChange.event;
+@@ -49,7 +49,7 @@
+     // Setup InputHandler listeners
+     this._register(this._inputHandler.onRequestBell(() => this.bell()));
+     this._register(this._inputHandler.onRequestReset(() => this.reset()));
+-    this._register(EventUtils.forward(this._inputHandler.onCursorMove, this._onCursorMove));
++    this._register(EventUtils.forwardVoid(this._inputHandler.onCursorMove, this._onCursorMove));
+     this._register(EventUtils.forward(this._inputHandler.onTitleChange, this._onTitleChange));
+     this._register(EventUtils.forward(this._inputHandler.onA11yChar, this._onA11yCharEmitter));
+     this._register(EventUtils.forward(this._inputHandler.onA11yTab, this._onA11yTabEmitter));
+@@ -124,8 +124,8 @@
+      * Since _setup handles a full terminal creation, we have to carry forward
+      * a few things that should not reset.
+      */
+-    this.options.rows = this.rows;
+-    this.options.cols = this.cols;
++    this.optionsService.setOption('rows', this.rows);
++    this.optionsService.setOption('cols', this.cols);
+ 
+     this._setup();
+     super.reset();

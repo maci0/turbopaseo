@@ -1,0 +1,14 @@
+--- a/node_modules/cross-spawn/index.js
++++ b/node_modules/cross-spawn/index.js
+@@ -36,4 +36,10 @@
+ module.exports.sync = spawnSync;
+ 
+ module.exports._parse = parse;
+-module.exports._enoent = enoent;
++// A plain object with every export of ./lib/enoent: scriptc cannot hold a module object as a value.
++module.exports._enoent = {
++    hookChildProcess: enoent.hookChildProcess,
++    verifyENOENT: enoent.verifyENOENT,
++    verifyENOENTSync: enoent.verifyENOENTSync,
++    notFoundError: enoent.notFoundError,
++};

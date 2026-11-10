@@ -1,0 +1,1 @@
+{"extends":"../tsconfig.json","compilerOptions":{"noUnusedLocals":false,"noUnusedParameters":false,"rootDir":"../../../../..","baseUrl":".","paths":{"pino":["./pino-stub.ts"]}},"include":["*.ts"]}

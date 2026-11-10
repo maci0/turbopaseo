@@ -1,0 +1,12 @@
+# config
+name: paseo
+version: 1.2
+list:
+  - a
+  - "quoted"
+  - {inline: true, n: null}
+multi: |
+  line one
+  line two
+anchor: &a 5
+ref: *a

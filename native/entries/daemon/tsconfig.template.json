@@ -1,0 +1,33 @@
+{
+  "extends": "../tsconfig.server.json",
+  "compilerOptions": {
+    "rootDir": "../../../../..",
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "baseUrl": ".",
+    "paths": {
+      "ws": ["../../../../../native/ws/index.ts"],
+      "express": ["../../../../../native/express/express.ts"],
+      "uuid": ["../../../../../native/uuid/index.ts"],
+      "ajv": ["../../../../../native/ajv/index.ts"],
+      "ajv-formats": ["../../../../../native/ajv/formats.ts"],
+      "eventsource": ["../../../../../native/eventsource/index.ts"],
+      "@opencode-ai/sdk/v2/client": ["../../../../../native/opencode-sdk/client.ts"],
+      "node-pty": ["../../../../../native/pty/pty.ts"],
+      "pino": ["../../../../../native/pino/index.ts"],
+      "pino-pretty": ["../../../../../native/pino/pretty.ts"],
+      "openai": ["../../../../../native/openai/index.ts"],
+      "https-proxy-agent": ["../../../../../native/https-proxy-agent/index.ts"],
+      "@xterm/headless": ["../../../../../native/xterm/headless.ts"],
+      "@xterm/addon-serialize": ["../../../../../native/xterm/addon-serialize.ts"],
+      "@xterm/addon-unicode-graphemes": ["../../../../../native/xterm/addon-unicode-graphemes.ts"],
+      "@codemirror/language": ["../../../../../native/highlight/language.ts"],
+      "@getpaseo/highlight": ["../../../../../native/highlight/index.ts"],
+      "@server/*": ["../src/*"],
+      "@anthropic-ai/claude-agent-sdk": ["../../../../../native/claude-sdk/index.ts"],
+      "@hono/node-server": ["@SCRIPTC_SHIMS@/hono-node-server/v2.ts"]
+    }
+  },
+  "include": ["*.ts", "../src/**/*", "../scripts/**/*"],
+  "exclude": ["../src/**/*.test.ts", "../scripts/**/*.test.ts"]
+}

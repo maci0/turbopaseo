@@ -1,0 +1,12 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "../../../../..",
+    "baseUrl": ".",
+    "paths": {
+      "ws": ["../../../../../native/ws/index.ts"]
+    }
+  },
+  "include": ["*.ts", "../src/**/*"],
+  "exclude": ["../src/**/*.test.ts"]
+}

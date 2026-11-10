@@ -1,0 +1,104 @@
+--- a/node_modules/zod/v4/classic/iso.js
++++ b/node_modules/zod/v4/classic/iso.js
+@@ -1,30 +1,7 @@
+-import * as core from "../core/index.js";
+-import * as schemas from "./schemas.js";
+-export const ZodISODateTime = /*@__PURE__*/ core.$constructor("ZodISODateTime", (inst, def) => {
+-    core.$ZodISODateTime.init(inst, def);
+-    schemas.ZodStringFormat.init(inst, def);
+-});
+-export function datetime(params) {
+-    return core._isoDateTime(ZodISODateTime, params);
+-}
+-export const ZodISODate = /*@__PURE__*/ core.$constructor("ZodISODate", (inst, def) => {
+-    core.$ZodISODate.init(inst, def);
+-    schemas.ZodStringFormat.init(inst, def);
+-});
+-export function date(params) {
+-    return core._isoDate(ZodISODate, params);
+-}
+-export const ZodISOTime = /*@__PURE__*/ core.$constructor("ZodISOTime", (inst, def) => {
+-    core.$ZodISOTime.init(inst, def);
+-    schemas.ZodStringFormat.init(inst, def);
+-});
+-export function time(params) {
+-    return core._isoTime(ZodISOTime, params);
+-}
+-export const ZodISODuration = /*@__PURE__*/ core.$constructor("ZodISODuration", (inst, def) => {
+-    core.$ZodISODuration.init(inst, def);
+-    schemas.ZodStringFormat.init(inst, def);
+-});
+-export function duration(params) {
+-    return core._isoDuration(ZodISODuration, params);
+-}
++export { ZodISODateTime, ZodISODate, ZodISOTime, ZodISODuration } from "./schemas.js";
++export {
++    isoDatetime as datetime,
++    isoDate as date,
++    isoTime as time,
++    isoDuration as duration,
++} from "./schemas.js";
+--- a/node_modules/zod/v4/classic/schemas.js
++++ b/node_modules/zod/v4/classic/schemas.js
+@@ -3,7 +3,6 @@
+ import * as processors from "../core/json-schema-processors.js";
+ import { createStandardJSONSchemaMethod, createToJSONSchemaMethod } from "../core/to-json-schema.js";
+ import * as checks from "./checks.js";
+-import * as iso from "./iso.js";
+ import * as parse from "./parse.js";
+ // Lazy-bind builder methods.
+ //
+@@ -280,12 +279,23 @@
+     inst.cidrv4 = (params) => inst.check(core._cidrv4(ZodCIDRv4, params));
+     inst.cidrv6 = (params) => inst.check(core._cidrv6(ZodCIDRv6, params));
+     inst.e164 = (params) => inst.check(core._e164(ZodE164, params));
+-    // iso
+-    inst.datetime = (params) => inst.check(iso.datetime(params));
+-    inst.date = (params) => inst.check(iso.date(params));
+-    inst.time = (params) => inst.check(iso.time(params));
+-    inst.duration = (params) => inst.check(iso.duration(params));
++    inst.datetime = (params) => inst.check(isoDatetime(params));
++    inst.date = (params) => inst.check(isoDate(params));
++    inst.time = (params) => inst.check(isoTime(params));
++    inst.duration = (params) => inst.check(isoDuration(params));
+ });
++export function isoDatetime(params) {
++    return core._isoDateTime(ZodISODateTime, params);
++}
++export function isoDate(params) {
++    return core._isoDate(ZodISODate, params);
++}
++export function isoTime(params) {
++    return core._isoTime(ZodISOTime, params);
++}
++export function isoDuration(params) {
++    return core._isoDuration(ZodISODuration, params);
++}
+ export function string(params) {
+     return core._string(ZodString, params);
+ }
+@@ -293,6 +303,24 @@
+     core.$ZodStringFormat.init(inst, def);
+     _ZodString.init(inst, def);
+ });
++// Defined after ZodStringFormat so iso.js can re-export these without
++// schemas.js importing iso.js back.
++export const ZodISODateTime = /*@__PURE__*/ core.$constructor("ZodISODateTime", (inst, def) => {
++    core.$ZodISODateTime.init(inst, def);
++    ZodStringFormat.init(inst, def);
++});
++export const ZodISODate = /*@__PURE__*/ core.$constructor("ZodISODate", (inst, def) => {
++    core.$ZodISODate.init(inst, def);
++    ZodStringFormat.init(inst, def);
++});
++export const ZodISOTime = /*@__PURE__*/ core.$constructor("ZodISOTime", (inst, def) => {
++    core.$ZodISOTime.init(inst, def);
++    ZodStringFormat.init(inst, def);
++});
++export const ZodISODuration = /*@__PURE__*/ core.$constructor("ZodISODuration", (inst, def) => {
++    core.$ZodISODuration.init(inst, def);
++    ZodStringFormat.init(inst, def);
++});
+ export const ZodEmail = /*@__PURE__*/ core.$constructor("ZodEmail", (inst, def) => {
+     // ZodStringFormat.init(inst, def);
+     core.$ZodEmail.init(inst, def);

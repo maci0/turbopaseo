@@ -1,0 +1,11 @@
+diff -ruN a/node_modules/dijkstrajs/dijkstra.js b/node_modules/dijkstrajs/dijkstra.js
+--- a/node_modules/dijkstrajs/dijkstra.js
++++ b/node_modules/dijkstrajs/dijkstra.js
+@@ -160,6 +160,4 @@
+ 
+ 
+ // node.js module exports
+-if (typeof module !== 'undefined') {
+-  module.exports = dijkstra;
+-}
++module.exports = dijkstra;

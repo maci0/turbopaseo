@@ -1,0 +1,98 @@
+--- a/node_modules/markdown-it/lib/common/utils.js
++++ b/node_modules/markdown-it/lib/common/utils.js
+@@ -295,9 +295,13 @@
+ // so plugins won't have to depend on them explicitly, which reduces their
+ // bundled size (e.g. a browser build).
+ //
++// Every export copied into a plain object: scriptc cannot hold a module's exports object
++// as a value. Same members as the modules themselves (mdurl 1.0.1, uc.micro 1.0.6).
++var mdurl                   = require('mdurl');
++var ucmicro                 = require('uc.micro');
+ exports.lib                 = {};
+-exports.lib.mdurl           = require('mdurl');
+-exports.lib.ucmicro         = require('uc.micro');
++exports.lib.mdurl           = { encode: mdurl.encode, decode: mdurl.decode, format: mdurl.format, parse: mdurl.parse };
++exports.lib.ucmicro         = { Any: ucmicro.Any, Cc: ucmicro.Cc, Cf: ucmicro.Cf, P: ucmicro.P, Z: ucmicro.Z };
+ 
+ exports.assign              = assign;
+ exports.isString            = isString;
+--- a/node_modules/markdown-it/lib/index.js
++++ b/node_modules/markdown-it/lib/index.js
+@@ -14,10 +14,21 @@
+ var punycode     = require('punycode');
+ 
+ 
++// Each preset's two members read directly: scriptc cannot hold a module's exports object
++// as a value. Same options and components objects as the preset modules export.
+ var config = {
+-  'default': require('./presets/default'),
+-  zero: require('./presets/zero'),
+-  commonmark: require('./presets/commonmark')
++  'default': {
++    options: require('./presets/default').options,
++    components: require('./presets/default').components
++  },
++  zero: {
++    options: require('./presets/zero').options,
++    components: require('./presets/zero').components
++  },
++  commonmark: {
++    options: require('./presets/commonmark').options,
++    components: require('./presets/commonmark').components
++  }
+ };
+ 
+ ////////////////////////////////////////////////////////////////////////////////
+@@ -330,7 +341,25 @@
+    * Assorted utility functions, useful to write plugins. See details
+    * [here](https://github.com/markdown-it/markdown-it/blob/master/lib/common/utils.js).
+    **/
+-  this.utils = utils;
++  // A plain object with every export of ./common/utils, for the same scriptc reason.
++  this.utils = {
++    lib: utils.lib,
++    assign: utils.assign,
++    isString: utils.isString,
++    has: utils.has,
++    unescapeMd: utils.unescapeMd,
++    unescapeAll: utils.unescapeAll,
++    isValidEntityCode: utils.isValidEntityCode,
++    fromCodePoint: utils.fromCodePoint,
++    escapeHtml: utils.escapeHtml,
++    arrayReplaceAt: utils.arrayReplaceAt,
++    isSpace: utils.isSpace,
++    isWhiteSpace: utils.isWhiteSpace,
++    isMdAsciiPunct: utils.isMdAsciiPunct,
++    isPunctChar: utils.isPunctChar,
++    escapeRE: utils.escapeRE,
++    normalizeReference: utils.normalizeReference
++  };
+ 
+   /**
+    * MarkdownIt#helpers -> helpers
+@@ -338,7 +367,11 @@
+    * Link components parser functions, useful to write plugins. See details
+    * [here](https://github.com/markdown-it/markdown-it/blob/master/lib/helpers).
+    **/
+-  this.helpers = utils.assign({}, helpers);
++  this.helpers = {
++    parseLinkLabel: helpers.parseLinkLabel,
++    parseLinkDestination: helpers.parseLinkDestination,
++    parseLinkTitle: helpers.parseLinkTitle
++  };
+ 
+ 
+   this.options = {};
+--- a/node_modules/markdown-it/lib/renderer.js
++++ b/node_modules/markdown-it/lib/renderer.js
+@@ -157,7 +157,9 @@
+    * See [source code](https://github.com/markdown-it/markdown-it/blob/master/lib/renderer.js)
+    * for more details and examples.
+    **/
+-  this.rules = assign({}, default_rules);
++  // A member read, not the top-level 'assign': scriptc cannot prove a hoisted function runs
++  // after that var is set.
++  this.rules = require('./common/utils').assign({}, default_rules);
+ }
+ 
+ 

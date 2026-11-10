@@ -1,0 +1,68 @@
+{
+  "ffi_format": 6,
+  "functions": [
+    {
+      "name": "ptySpawn",
+      "symbol": "pty_spawn",
+      "params": ["string", "string", "string", "string", "u32", "u32"],
+      "returns": "i32"
+    },
+    {
+      "name": "ptyStart",
+      "symbol": "pty_start",
+      "params": [
+        "i32",
+        {
+          "callback": {
+            "id": "event",
+            "params": ["i32", "i32", "i32", "string", { "context": "event" }],
+            "returns": "void",
+            "lifetime": "retained",
+            "invoke": "foreign"
+          }
+        },
+        { "context": "event" }
+      ],
+      "returns": "i32"
+    },
+    {
+      "name": "ptyRelease",
+      "symbol": "pty_release",
+      "params": [
+        "i32",
+        { "callback": { "release": "ptyStart:event" } },
+        { "context": "ptyStart:event" }
+      ],
+      "returns": "void"
+    },
+    { "name": "ptyWrite", "symbol": "pty_write", "params": ["i32", "string"], "returns": "i32" },
+    {
+      "name": "ptyResize",
+      "symbol": "pty_resize",
+      "params": ["i32", "u32", "u32"],
+      "returns": "i32"
+    },
+    { "name": "ptyKill", "symbol": "pty_kill", "params": ["i32", "i32"], "returns": "i32" },
+    { "name": "ptyPid", "symbol": "pty_pid", "params": ["i32"], "returns": "i32" },
+    {
+      "name": "ptySignalNumber",
+      "symbol": "pty_signal_number",
+      "params": ["string"],
+      "returns": "i32"
+    },
+    {
+      "name": "ptyDetachSession",
+      "symbol": "pty_detach_session",
+      "params": ["string"],
+      "returns": "i32"
+    },
+    {
+      "name": "ptyStrerror",
+      "symbol": "pty_strerror",
+      "params": ["i32", "mutable-bytes"],
+      "returns": "i32"
+    }
+  ],
+  "libraries": ["./libpty.a"],
+  "system_libraries": ["util", "pthread"]
+}

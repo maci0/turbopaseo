@@ -1,0 +1,27 @@
+--- a/packages/server/node_modules/lru-cache/dist/esm/node/perf.js
++++ b/packages/server/node_modules/lru-cache/dist/esm/node/perf.js
+@@ -1,7 +1,9 @@
++// A plain object whose now() reads the clock: scriptc cannot hold the global performance
++// object (or Date) as a value. Same clock as before: performance.now() when available.
+ export const defaultPerf = (typeof performance === 'object' &&
+     performance &&
+     typeof performance.now === 'function') ?
+     /* c8 ignore start - this gets covered, but c8 gets confused */
+-    performance
+-    : /* c8 ignore stop */ Date;
+-//# sourceMappingURL=perf.js.map
+\ No newline at end of file
++    { now: () => performance.now() }
++    : /* c8 ignore stop */ { now: () => Date.now() };
++//# sourceMappingURL=perf.js.map
+--- a/packages/server/node_modules/lru-cache/package.json
++++ b/packages/server/node_modules/lru-cache/package.json
+@@ -130,7 +130,7 @@
+         },
+         "node": {
+           "types": "./dist/esm/node/index.d.ts",
+-          "default": "./dist/esm/node/index.min.js"
++          "default": "./dist/esm/node/index.js"
+         },
+         "types": "./dist/esm/index.d.ts",
+         "default": "./dist/esm/index.min.js"

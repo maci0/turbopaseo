@@ -1,0 +1,14 @@
+--- a/node_modules/pkce-challenge/dist/index.node.js
++++ b/node_modules/pkce-challenge/dist/index.node.js
+@@ -1,8 +1,6 @@
+-let crypto;
+-crypto =
+-    globalThis.crypto?.webcrypto ?? // Node.js [18-16] REPL
+-        globalThis.crypto ?? // Node.js >18
+-        import("node:crypto").then(m => m.webcrypto); // Node.js <18 Non-REPL
++// Web Crypto on every Node that Paseo runs on (22 and later). The fallbacks for Node 16 to 18
++// made this either the API or a promise of it, which scriptc cannot hold in one variable.
++const crypto = globalThis.crypto;
+ /**
+  * Creates an array of length `size` of random bytes
+  * @param size

@@ -1,0 +1,2 @@
+$primary: #333;
+.nav { color: $primary; &:hover { color: darken($primary, 10%); } }

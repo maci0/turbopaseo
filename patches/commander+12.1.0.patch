@@ -1,0 +1,254 @@
+--- a/packages/cli/node_modules/commander/lib/command.js
++++ b/packages/cli/node_modules/commander/lib/command.js
+@@ -74,6 +74,13 @@
+     /** @type {Command} */
+     this._helpCommand = undefined; // lazy initialised, inherited
+     this._helpConfiguration = {};
++    // addHelpText() entries, kept in arrays and written by outputHelp() directly.
++    // Upstream routes them through beforeHelp/afterHelp events, whose argument
++    // types scriptc cannot settle across a whole program.
++    this._helpTextBeforeAll = [];
++    this._helpTextBefore = [];
++    this._helpTextAfter = [];
++    this._helpTextAfterAll = [];
+   }
+ 
+   /**
+@@ -616,7 +623,7 @@
+ 
+   _registerCommand(command) {
+     const knownBy = (cmd) => {
+-      return [cmd.name()].concat(cmd.aliases());
++      return [cmd._name].concat(cmd._aliases);
+     };
+ 
+     const alreadyUsed = knownBy(command).find((name) =>
+@@ -937,7 +944,7 @@
+    * Expected values are default | config | env | cli | implied
+    *
+    * @param {string} key
+-   * @return {string}
++   * @return {(string|undefined)}
+    */
+ 
+   getOptionValueSource(key) {
+@@ -949,7 +956,7 @@
+    * Expected values are default | config | env | cli | implied
+    *
+    * @param {string} key
+-   * @return {string}
++   * @return {(string|undefined)}
+    */
+ 
+   getOptionValueSourceWithGlobals(key) {
+@@ -1458,7 +1465,7 @@
+     }
+     if (
+       this._getHelpCommand() &&
+-      operands[0] === this._getHelpCommand().name()
++      operands[0] === this._getHelpCommand()._name
+     ) {
+       return this._dispatchHelpCommand(operands[1]);
+     }
+@@ -1491,7 +1498,8 @@
+       }
+     };
+ 
+-    const commandEvent = `command:${this.name()}`;
++    const commandName = this._name;
++    const commandEvent = `command:${commandName}`;
+     if (this._actionHandler) {
+       checkForUnknownOptions();
+       this._processArguments();
+@@ -1742,7 +1750,7 @@
+           break;
+         } else if (
+           this._getHelpCommand() &&
+-          arg === this._getHelpCommand().name()
++          arg === this._getHelpCommand()._name
+         ) {
+           operands.push(arg);
+           if (args.length > 0) operands.push(...args);
+@@ -2022,7 +2030,7 @@
+ 
+     const expected = this.registeredArguments.length;
+     const s = expected === 1 ? '' : 's';
+-    const forSubcommand = this.parent ? ` for '${this.name()}'` : '';
++    const forSubcommand = this.parent ? ` for '${this._name}'` : '';
+     const message = `error: too many arguments${forSubcommand}. Expected ${expected} argument${s} but got ${receivedArgs.length}.`;
+     this.error(message, { code: 'commander.excessArguments' });
+   }
+@@ -2042,9 +2050,9 @@
+       this.createHelp()
+         .visibleCommands(this)
+         .forEach((command) => {
+-          candidateNames.push(command.name());
++          candidateNames.push(command._name);
+           // just visible alias
+-          if (command.alias()) candidateNames.push(command.alias());
++          if (command._aliases.length > 0) candidateNames.push(command._aliases[0]);
+         });
+       suggestion = suggestSimilar(unknownName, candidateNames);
+     }
+@@ -2139,11 +2147,11 @@
+     const matchingCommand = this.parent?._findCommand(alias);
+     if (matchingCommand) {
+       // c.f. _registerCommand
+-      const existingCmd = [matchingCommand.name()]
+-        .concat(matchingCommand.aliases())
++      const existingCmd = [matchingCommand._name]
++        .concat(matchingCommand._aliases)
+         .join('|');
+       throw new Error(
+-        `cannot add alias '${alias}' to command '${this.name()}' as already have command '${existingCmd}'`,
++        `cannot add alias '${alias}' to command '${this._name}' as already have command '${existingCmd}'`,
+       );
+     }
+ 
+@@ -2176,26 +2184,32 @@
+    */
+ 
+   usage(str) {
+-    if (str === undefined) {
+-      if (this._usage) return this._usage;
+-
+-      const args = this.registeredArguments.map((arg) => {
+-        return humanReadableArgName(arg);
+-      });
+-      return []
+-        .concat(
+-          this.options.length || this._helpOption !== null ? '[options]' : [],
+-          this.commands.length ? '[command]' : [],
+-          this.registeredArguments.length ? args : [],
+-        )
+-        .join(' ');
+-    }
++    if (str === undefined) return this._usageText();
+ 
+     this._usage = str;
+     return this;
+   }
+ 
+   /**
++   * The usage string, as `usage()` returns it without an argument.
++   *
++   * @return {string}
++   * @private
++   */
++
++  _usageText() {
++    if (this._usage) return this._usage;
++
++    const parts = [];
++    if (this.options.length || this._helpOption !== null) parts.push('[options]');
++    if (this.commands.length) parts.push('[command]');
++    for (const arg of this.registeredArguments) {
++      parts.push(humanReadableArgName(arg));
++    }
++    return parts.join(' ');
++  }
++
++  /**
+    * Get or set the name of the command.
+    *
+    * @param {string} [str]
+@@ -2297,10 +2311,20 @@
+     }
+     const context = this._getHelpContext(contextOptions);
+ 
++    const writeHelpTexts = (texts) => {
++      for (const text of texts) {
++        const helpStr =
++          typeof text === 'function'
++            ? text({ error: context.error, command: context.command })
++            : text;
++        // Ignore falsy value when nothing to output.
++        if (helpStr) context.write(`${helpStr}\n`);
++      }
++    };
+     this._getCommandAndAncestors()
+       .reverse()
+-      .forEach((command) => command.emit('beforeAllHelp', context));
+-    this.emit('beforeHelp', context);
++      .forEach((command) => writeHelpTexts(command._helpTextBeforeAll));
++    writeHelpTexts(this._helpTextBefore);
+ 
+     let helpInformation = this.helpInformation(context);
+     if (deprecatedCallback) {
+@@ -2317,9 +2341,9 @@
+     if (this._getHelpOption()?.long) {
+       this.emit(this._getHelpOption().long); // deprecated
+     }
+-    this.emit('afterHelp', context);
++    writeHelpTexts(this._helpTextAfter);
+     this._getCommandAndAncestors().forEach((command) =>
+-      command.emit('afterAllHelp', context),
++      writeHelpTexts(command._helpTextAfterAll),
+     );
+   }
+ 
+@@ -2421,19 +2445,10 @@
+       throw new Error(`Unexpected value for position to addHelpText.
+ Expecting one of '${allowedValues.join("', '")}'`);
+     }
+-    const helpEvent = `${position}Help`;
+-    this.on(helpEvent, (context) => {
+-      let helpStr;
+-      if (typeof text === 'function') {
+-        helpStr = text({ error: context.error, command: context.command });
+-      } else {
+-        helpStr = text;
+-      }
+-      // Ignore falsy value when nothing to output.
+-      if (helpStr) {
+-        context.write(`${helpStr}\n`);
+-      }
+-    });
++    if (position === 'beforeAll') this._helpTextBeforeAll.push(text);
++    else if (position === 'before') this._helpTextBefore.push(text);
++    else if (position === 'after') this._helpTextAfter.push(text);
++    else this._helpTextAfterAll.push(text);
+     return this;
+   }
+ 
+--- a/packages/cli/node_modules/commander/lib/help.js
++++ b/packages/cli/node_modules/commander/lib/help.js
+@@ -33,7 +33,7 @@
+     if (this.sortSubcommands) {
+       visibleCommands.sort((a, b) => {
+         // @ts-ignore: because overloaded return type
+-        return a.name().localeCompare(b.name());
++        return a._name.localeCompare(b._name);
+       });
+     }
+     return visibleCommands;
+@@ -256,9 +256,9 @@
+       ancestorCmd;
+       ancestorCmd = ancestorCmd.parent
+     ) {
+-      ancestorCmdNames = ancestorCmd.name() + ' ' + ancestorCmdNames;
++      ancestorCmdNames = ancestorCmd._name + ' ' + ancestorCmdNames;
+     }
+-    return ancestorCmdNames + cmdName + ' ' + cmd.usage();
++    return ancestorCmdNames + cmdName + ' ' + cmd._usageText();
+   }
+ 
+   /**
+@@ -270,7 +270,7 @@
+ 
+   commandDescription(cmd) {
+     // @ts-ignore: because overloaded return type
+-    return cmd.description();
++    return cmd._description;
+   }
+ 
+   /**
+@@ -283,7 +283,7 @@
+ 
+   subcommandDescription(cmd) {
+     // @ts-ignore: because overloaded return type
+-    return cmd.summary() || cmd.description();
++    return cmd._summary || cmd._description;
+   }
+ 
+   /**

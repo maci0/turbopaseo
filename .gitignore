@@ -1,0 +1,8 @@
+builds/
+dist/
+.scratch/
+.scriptc/
+native/*/node_modules
+native/claude-sdk/types/
+native/highlight/paseo-src
+native/opencode-sdk/types/

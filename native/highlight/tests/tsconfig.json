@@ -1,0 +1,11 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "../../..",
+    "paths": {
+      "@codemirror/language": ["../language.ts"],
+      "@getpaseo/highlight": ["../index.ts"]
+    }
+  },
+  "include": ["highlight-proof.ts"]
+}

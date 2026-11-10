@@ -1,0 +1,15 @@
+diff -ruN a/node_modules/@modelcontextprotocol/sdk/package.json b/node_modules/@modelcontextprotocol/sdk/package.json
+--- a/node_modules/@modelcontextprotocol/sdk/package.json	2026-11-10 14:09:10.331571710 +0800
++++ b/node_modules/@modelcontextprotocol/sdk/package.json	2026-11-10 14:09:10.346510121 +0800
+@@ -59,6 +59,11 @@
+             "import": "./dist/esm/experimental/tasks/index.js",
+             "require": "./dist/cjs/experimental/tasks/index.js"
+         },
++        "./*.js": {
++            "types": "./dist/esm/*.d.ts",
++            "import": "./dist/esm/*.js",
++            "require": "./dist/cjs/*.js"
++        },
+         "./*": {
+             "types": "./dist/esm/*.d.ts",
+             "import": "./dist/esm/*",

@@ -1,0 +1,241 @@
+diff -ruN a/node_modules/qrcode/lib/browser.js b/node_modules/qrcode/lib/browser.js
+--- a/node_modules/qrcode/lib/browser.js
++++ b/node_modules/qrcode/lib/browser.js
+@@ -5,8 +5,8 @@
+ const CanvasRenderer = require('./renderer/canvas')
+ const SvgRenderer = require('./renderer/svg-tag.js')
+ 
+-function renderCanvas (renderFunc, canvas, text, opts, cb) {
+-  const args = [].slice.call(arguments, 1)
++function renderCanvas (renderFunc, ...args) {
++  let [canvas, text, opts, cb] = args
+   const argsNum = args.length
+   const isLastArgCb = typeof args[argsNum - 1] === 'function'
+ 
+diff -ruN a/node_modules/qrcode/lib/core/bit-matrix.js b/node_modules/qrcode/lib/core/bit-matrix.js
+--- a/node_modules/qrcode/lib/core/bit-matrix.js
++++ b/node_modules/qrcode/lib/core/bit-matrix.js
+@@ -33,7 +33,7 @@
+  *
+  * @param  {Number}  row
+  * @param  {Number}  col
+- * @return {Boolean}
++ * @return {Number}
+  */
+ BitMatrix.prototype.get = function (row, col) {
+   return this.data[row * this.size + col]
+@@ -56,7 +56,7 @@
+  *
+  * @param {Number}   row
+  * @param {Number}   col
+- * @return {Boolean}
++ * @return {Number}
+  */
+ BitMatrix.prototype.isReserved = function (row, col) {
+   return this.reservedBit[row * this.size + col]
+diff -ruN a/node_modules/qrcode/lib/core/error-correction-code.js b/node_modules/qrcode/lib/core/error-correction-code.js
+--- a/node_modules/qrcode/lib/core/error-correction-code.js
++++ b/node_modules/qrcode/lib/core/error-correction-code.js
+@@ -93,7 +93,7 @@
+  * for the specified version and error correction level.
+  *
+  * @param  {Number} version              QR Code version
+- * @param  {Number} errorCorrectionLevel Error correction level
++ * @param  {Object} errorCorrectionLevel Error correction level
+  * @return {Number}                      Number of error correction blocks
+  */
+ exports.getBlocksCount = function getBlocksCount (version, errorCorrectionLevel) {
+@@ -116,7 +116,7 @@
+  * version and error correction level.
+  *
+  * @param  {Number} version              QR Code version
+- * @param  {Number} errorCorrectionLevel Error correction level
++ * @param  {Object} errorCorrectionLevel Error correction level
+  * @return {Number}                      Number of error correction codewords
+  */
+ exports.getTotalCodewordsCount = function getTotalCodewordsCount (version, errorCorrectionLevel) {
+diff -ruN a/node_modules/qrcode/lib/core/format-info.js b/node_modules/qrcode/lib/core/format-info.js
+--- a/node_modules/qrcode/lib/core/format-info.js
++++ b/node_modules/qrcode/lib/core/format-info.js
+@@ -10,7 +10,7 @@
+  * The format information is a 15-bit sequence containing 5 data bits,
+  * with 10 error correction bits calculated using the (15, 5) BCH code.
+  *
+- * @param  {Number} errorCorrectionLevel Error correction level
++ * @param  {Object} errorCorrectionLevel Error correction level
+  * @param  {Number} mask                 Mask pattern
+  * @return {Number}                      Encoded format information bits
+  */
+diff -ruN a/node_modules/qrcode/lib/core/mask-pattern.js b/node_modules/qrcode/lib/core/mask-pattern.js
+--- a/node_modules/qrcode/lib/core/mask-pattern.js
++++ b/node_modules/qrcode/lib/core/mask-pattern.js
+@@ -27,7 +27,7 @@
+ /**
+  * Check if mask pattern value is valid
+  *
+- * @param  {Number}  mask    Mask pattern
++ * @param  {Number|String}  [mask]    Mask pattern
+  * @return {Boolean}         true if valid, false otherwise
+  */
+ exports.isValid = function isValid (mask) {
+@@ -38,8 +38,8 @@
+  * Returns mask pattern from a value.
+  * If value is not valid, returns undefined
+  *
+- * @param  {Number|String} value        Mask pattern value
+- * @return {Number}                     Valid mask pattern or undefined
++ * @param  {Number|String} [value]      Mask pattern value
++ * @return {Number|undefined}           Valid mask pattern or undefined
+  */
+ exports.from = function from (value) {
+   return exports.isValid(value) ? parseInt(value, 10) : undefined
+diff -ruN a/node_modules/qrcode/lib/core/mode.js b/node_modules/qrcode/lib/core/mode.js
+--- a/node_modules/qrcode/lib/core/mode.js
++++ b/node_modules/qrcode/lib/core/mode.js
+@@ -113,7 +113,7 @@
+  * Check if input param is a valid mode object
+  *
+  * @param   {Mode}    mode Mode object
+- * @returns {Boolean} True if valid mode, false otherwise
++ * @returns {*}       Truthy if valid mode, falsy otherwise
+  */
+ exports.isValid = function isValid (mode) {
+   return mode && mode.bit && mode.ccBits
+diff -ruN a/node_modules/qrcode/lib/core/qrcode.js b/node_modules/qrcode/lib/core/qrcode.js
+--- a/node_modules/qrcode/lib/core/qrcode.js
++++ b/node_modules/qrcode/lib/core/qrcode.js
+@@ -370,7 +370,7 @@
+  * Build QR Code symbol
+  *
+  * @param  {String} data                 Input string
+- * @param  {Number} version              QR Code version
++ * @param  {Number} [version]            QR Code version
+  * @param  {ErrorCorretionLevel} errorCorrectionLevel Error level
+  * @param  {MaskPattern} maskPattern     Mask pattern
+  * @return {Object}                      Object containing symbol data
+diff -ruN a/node_modules/qrcode/lib/core/segments.js b/node_modules/qrcode/lib/core/segments.js
+--- a/node_modules/qrcode/lib/core/segments.js
++++ b/node_modules/qrcode/lib/core/segments.js
+@@ -14,7 +14,9 @@
+  * @return {Number}     Number of byte
+  */
+ function getStringByteLength (str) {
+-  return unescape(encodeURIComponent(str)).length
++  // Each UTF-8 byte is one ASCII character or one %XX escape, and unescape(%XX) is one character
++  const encoded = encodeURIComponent(str)
++  return encoded.length - 2 * (encoded.split('%').length - 1)
+ }
+ 
+ /**
+@@ -299,7 +301,7 @@
+  * @return {Array}          Array of segments
+  */
+ exports.fromString = function fromString (data, version) {
+-  const segs = getSegmentsFromString(data, Utils.isKanjiModeEnabled())
++  const segs = getSegmentsFromString(data)
+ 
+   const nodes = buildNodes(segs)
+   const graph = buildGraph(nodes, version)
+@@ -325,6 +327,6 @@
+  */
+ exports.rawSplit = function rawSplit (data) {
+   return exports.fromArray(
+-    getSegmentsFromString(data, Utils.isKanjiModeEnabled())
++    getSegmentsFromString(data)
+   )
+ }
+diff -ruN a/node_modules/qrcode/lib/core/version-check.js b/node_modules/qrcode/lib/core/version-check.js
+--- a/node_modules/qrcode/lib/core/version-check.js
++++ b/node_modules/qrcode/lib/core/version-check.js
+@@ -1,7 +1,7 @@
+ /**
+  * Check if QR Code version is valid
+  *
+- * @param  {Number}  version QR Code version
++ * @param  {Number|String}  [version] QR Code version
+  * @return {Boolean}         true if valid version, false otherwise
+  */
+ exports.isValid = function isValid (version) {
+diff -ruN a/node_modules/qrcode/lib/core/version.js b/node_modules/qrcode/lib/core/version.js
+--- a/node_modules/qrcode/lib/core/version.js
++++ b/node_modules/qrcode/lib/core/version.js
+@@ -49,9 +49,9 @@
+  * Returns version number from a value.
+  * If value is not a valid version, returns defaultValue
+  *
+- * @param  {Number|String} value        QR Code version
+- * @param  {Number}        defaultValue Fallback value
+- * @return {Number}                     QR Code version number
++ * @param  {Number|String} [value]      QR Code version
++ * @param  {Number}        [defaultValue] Fallback value
++ * @return {Number|undefined}           QR Code version number
+  */
+ exports.from = function from (value, defaultValue) {
+   if (VersionCheck.isValid(value)) {
+@@ -66,7 +66,7 @@
+  * and error correction level
+  *
+  * @param  {Number} version              QR Code version (1-40)
+- * @param  {Number} errorCorrectionLevel Error correction level
++ * @param  {Object} errorCorrectionLevel Error correction level
+  * @param  {Mode}   mode                 Data mode
+  * @return {Number}                      Quantity of storable data
+  */
+@@ -112,7 +112,7 @@
+  * Returns the minimum version needed to contain the amount of data
+  *
+  * @param  {Segment} data                    Segment of data
+- * @param  {Number} [errorCorrectionLevel=H] Error correction level
++ * @param  {Object} [errorCorrectionLevel=H] Error correction level
+  * @param  {Mode} mode                       Data mode
+  * @return {Number}                          QR Code version
+  */
+diff -ruN a/node_modules/qrcode/lib/renderer/png.js b/node_modules/qrcode/lib/renderer/png.js
+--- a/node_modules/qrcode/lib/renderer/png.js
++++ b/node_modules/qrcode/lib/renderer/png.js
+@@ -1,8 +1,9 @@
+ const fs = require('fs')
+-const PNG = require('pngjs').PNG
+ const Utils = require('./utils')
+ 
+ exports.render = function render (qrData, options) {
++  // pngjs loads on the first PNG render, so text renderers never load it
++  const PNG = require('pngjs').PNG
+   const opts = Utils.getOptions(options)
+   const pngOpts = opts.rendererOpts
+   const size = Utils.getImageWidth(qrData.modules.size, opts)
+diff -ruN a/node_modules/qrcode/lib/server.js b/node_modules/qrcode/lib/server.js
+--- a/node_modules/qrcode/lib/server.js
++++ b/node_modules/qrcode/lib/server.js
+@@ -50,17 +50,17 @@
+   }
+ }
+ 
+-function getStringRendererFromType (type) {
++function getStringRenderFromType (type) {
+   switch (type) {
+     case 'svg':
+-      return SvgRenderer
++      return SvgRenderer.render
+ 
+     case 'terminal':
+-      return TerminalRenderer
++      return TerminalRenderer.render
+ 
+     case 'utf8':
+     default:
+-      return Utf8Renderer
++      return Utf8Renderer.render
+   }
+ }
+ 
+@@ -93,8 +93,7 @@
+ exports.toString = function toString (text, opts, cb) {
+   const params = checkParams(text, opts, cb)
+   const type = params.opts ? params.opts.type : undefined
+-  const renderer = getStringRendererFromType(type)
+-  return render(renderer.render, text, params)
++  return render(getStringRenderFromType(type), text, params)
+ }
+ 
+ exports.toDataURL = function toDataURL (text, opts, cb) {

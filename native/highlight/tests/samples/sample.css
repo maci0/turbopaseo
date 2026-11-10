@@ -1,0 +1,3 @@
+@media (max-width: 600px) {
+  .card > a:hover, #main::before { color: #ff0; margin: 0 auto !important; content: "x"; }
+}

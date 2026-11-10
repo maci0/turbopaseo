@@ -1,0 +1,66 @@
+--- a/node_modules/@noble/curves/abstract/modular.js
++++ b/node_modules/@noble/curves/abstract/modular.js
+@@ -28,6 +28,9 @@
+  * ```ts
+  * mod(-1n, 5n);
+  * ```
++ * @param {bigint} a
++ * @param {bigint} b
++ * @returns {bigint}
+  */
+ export function mod(a, b) {
+     if (b <= _0n)
+@@ -837,7 +840,6 @@
+     // poison every Field instance by monkey-patching `_Field.prototype` even if each instance is
+     // frozen. Freezing here instead of module scope keeps `_Field` tree-shakeable for importers
+     // that never construct a field; the call is idempotent and cheap.
+-    Object.freeze(_Field.prototype);
+     return new _Field(ORDER, opts);
+ }
+ /**
+--- a/node_modules/@noble/curves/abstract/edwards.js
++++ b/node_modules/@noble/curves/abstract/edwards.js
+@@ -103,8 +103,6 @@
+     // Extended Point works in extended coordinates: (X, Y, Z, T) ∋ (x=X/Z, y=Y/Z, T=xy).
+     // https://en.wikipedia.org/wiki/Twisted_Edwards_curve#Extended_coordinates
+     class Point {
+-        static BASE = new Point(CURVE.Gx, CURVE.Gy, Fp.ONE, Fp.mul(CURVE.Gx, CURVE.Gy));
+-        static ZERO = new Point(Fp.ZERO, Fp.ONE, Fp.ONE, Fp.ZERO);
+         static Fp = Fp;
+         static Fn = Fn;
+         X;
+@@ -363,6 +361,8 @@
+             return `<Point ${this.is0() ? 'ZERO' : this.toHex()}>`;
+         }
+     }
++    Point.BASE = new Point(CURVE.Gx, CURVE.Gy, Fp.ONE, Fp.mul(CURVE.Gx, CURVE.Gy));
++    Point.ZERO = new Point(Fp.ZERO, Fp.ONE, Fp.ONE, Fp.ZERO);
+     // Keep constructor work cheap: subgroup/generator validation belongs to the caller's curve
+     // parameters, and doing the extra checks here adds about 10-15ms to heavy module imports.
+     // Callers that construct custom curves are responsible for supplying the correct base point.
+@@ -378,8 +378,6 @@
+     // Disable for tiny toy curves, with scalar fields < 6 bits.
+     if (wnaf.bits >= 6)
+         Point.BASE.precompute(6);
+-    Object.freeze(Point.prototype);
+-    Object.freeze(Point);
+     return Point;
+ }
+ /**
+--- a/node_modules/@noble/curves/ed25519.js
++++ b/node_modules/@noble/curves/ed25519.js
+@@ -511,13 +511,7 @@
+     }
+ }
+ /** Prime-order Ristretto255 group bundle. */
+-export const ristretto255 = /* @__PURE__ */ (() => {
+-    Object.freeze(_RistrettoPoint.BASE);
+-    Object.freeze(_RistrettoPoint.ZERO);
+-    Object.freeze(_RistrettoPoint.prototype);
+-    Object.freeze(_RistrettoPoint);
+-    return Object.freeze({ Point: _RistrettoPoint });
+-})();
++export const ristretto255 = { Point: _RistrettoPoint };
+ /**
+  * Hashing to ristretto255 points / field. RFC 9380 methods.
+  * `hashToCurve()` is RFC 9380 Appendix B, `deriveToCurve()` is the RFC 9496

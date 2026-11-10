@@ -1,0 +1,8 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@opencode-ai/sdk/v2/client": ["../../../work/paseo/packages/server/node_modules/@opencode-ai/sdk/dist/v2/client.js"]
+    }
+  }
+}

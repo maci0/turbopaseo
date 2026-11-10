@@ -1,0 +1,104 @@
+{
+  "ffi_format": 7,
+  "functions": [
+    { "name": "sxLastError", "symbol": "sx_last_error", "params": ["mutable-bytes"], "returns": "i32" },
+    { "name": "sxConfigNew", "symbol": "sx_config_new", "params": ["i32"], "returns": "pointer" },
+    { "name": "sxConfigFree", "symbol": "sx_config_free", "params": ["pointer"], "returns": "void" },
+    {
+      "name": "sxConfigSetString",
+      "symbol": "sx_config_set_string",
+      "params": ["pointer", "string", "string"],
+      "returns": "i32"
+    },
+    {
+      "name": "sxConfigSetNumber",
+      "symbol": "sx_config_set_number",
+      "params": ["pointer", "string", "f64"],
+      "returns": "i32"
+    },
+
+    { "name": "sxVadCreate", "symbol": "sx_vad_create", "params": ["pointer", "f64"], "returns": "pointer" },
+    { "name": "sxVadDestroy", "symbol": "sx_vad_destroy", "params": ["pointer"], "returns": "void" },
+    {
+      "name": "sxVadAcceptWaveform",
+      "symbol": "sx_vad_accept_waveform",
+      "params": ["pointer", "bytes"],
+      "returns": "i32"
+    },
+    { "name": "sxVadIsDetected", "symbol": "sx_vad_is_detected", "params": ["pointer"], "returns": "i32" },
+    { "name": "sxVadIsEmpty", "symbol": "sx_vad_is_empty", "params": ["pointer"], "returns": "i32" },
+    { "name": "sxVadFlush", "symbol": "sx_vad_flush", "params": ["pointer"], "returns": "i32" },
+    { "name": "sxVadReset", "symbol": "sx_vad_reset", "params": ["pointer"], "returns": "i32" },
+
+    { "name": "sxCbCreate", "symbol": "sx_cb_create", "params": ["i32"], "returns": "pointer" },
+    { "name": "sxCbDestroy", "symbol": "sx_cb_destroy", "params": ["pointer"], "returns": "void" },
+    { "name": "sxCbPush", "symbol": "sx_cb_push", "params": ["pointer", "bytes"], "returns": "i32" },
+    {
+      "name": "sxCbGet",
+      "symbol": "sx_cb_get",
+      "params": ["pointer", "i32", "i32", "mutable-bytes"],
+      "returns": "i32"
+    },
+    { "name": "sxCbPop", "symbol": "sx_cb_pop", "params": ["pointer", "i32"], "returns": "i32" },
+    { "name": "sxCbSize", "symbol": "sx_cb_size", "params": ["pointer"], "returns": "i32" },
+    { "name": "sxCbHead", "symbol": "sx_cb_head", "params": ["pointer"], "returns": "i32" },
+    { "name": "sxCbReset", "symbol": "sx_cb_reset", "params": ["pointer"], "returns": "i32" },
+
+    { "name": "sxAsrCreate", "symbol": "sx_asr_create", "params": ["pointer"], "returns": "pointer" },
+    { "name": "sxAsrDestroy", "symbol": "sx_asr_destroy", "params": ["pointer"], "returns": "void" },
+    { "name": "sxAsrStreamCreate", "symbol": "sx_asr_stream_create", "params": ["pointer"], "returns": "pointer" },
+    { "name": "sxAsrStreamDestroy", "symbol": "sx_asr_stream_destroy", "params": ["pointer"], "returns": "void" },
+    {
+      "name": "sxAsrAcceptWaveform",
+      "symbol": "sx_asr_accept_waveform",
+      "params": ["pointer", "i32", "bytes"],
+      "returns": "i32"
+    },
+    { "name": "sxAsrDecode", "symbol": "sx_asr_decode", "params": ["pointer", "pointer"], "returns": "i32" },
+    {
+      "name": "sxAsrResultJson",
+      "symbol": "sx_asr_result_json",
+      "params": ["pointer", "mutable-bytes"],
+      "returns": "i32"
+    },
+
+    { "name": "sxTtsCreate", "symbol": "sx_tts_create", "params": ["pointer"], "returns": "pointer" },
+    { "name": "sxTtsDestroy", "symbol": "sx_tts_destroy", "params": ["pointer"], "returns": "void" },
+    { "name": "sxTtsSampleRate", "symbol": "sx_tts_sample_rate", "params": ["pointer"], "returns": "i32" },
+    { "name": "sxTtsNumSpeakers", "symbol": "sx_tts_num_speakers", "params": ["pointer"], "returns": "i32" },
+    {
+      "name": "sxTtsGenerateStart",
+      "symbol": "sx_tts_generate_start",
+      "params": [
+        "pointer",
+        "string",
+        "i32",
+        "f64",
+        {
+          "callback": {
+            "id": "done",
+            "params": ["i32", "i32", { "context": "done" }],
+            "returns": "void",
+            "lifetime": "retained",
+            "invoke": "foreign"
+          }
+        },
+        { "context": "done" }
+      ],
+      "returns": "i32"
+    },
+    {
+      "name": "sxTtsGenerateRelease",
+      "symbol": "sx_tts_generate_release",
+      "params": [{ "callback": { "release": "sxTtsGenerateStart:done" } }, { "context": "sxTtsGenerateStart:done" }],
+      "returns": "void"
+    },
+    { "name": "sxTtsJobLength", "symbol": "sx_tts_job_length", "params": ["i32"], "returns": "i32" },
+    { "name": "sxTtsJobSampleRate", "symbol": "sx_tts_job_sample_rate", "params": ["i32"], "returns": "i32" },
+    { "name": "sxTtsJobCopy", "symbol": "sx_tts_job_copy", "params": ["i32", "mutable-bytes"], "returns": "i32" },
+    { "name": "sxTtsJobError", "symbol": "sx_tts_job_error", "params": ["i32", "mutable-bytes"], "returns": "i32" },
+    { "name": "sxTtsJobRelease", "symbol": "sx_tts_job_release", "params": ["i32"], "returns": "void" }
+  ],
+  "libraries": ["./build/libsherpa_shim.a", "./build/lib/libsherpa-onnx-c-api.so"],
+  "system_libraries": ["stdc++"]
+}

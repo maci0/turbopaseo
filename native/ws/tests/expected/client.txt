@@ -1,0 +1,183 @@
+C text upgrade 101
+C text open protocol=""
+C text message text buf:"hello"
+C text close 1000 "done" readyState=3
+C binary upgrade 101
+C binary open protocol=""
+C binary message binary buf:"\u0007&Ed¢Áàÿ\u001e"
+C binary close 1000 "" readyState=3
+C empty upgrade 101
+C empty open protocol=""
+C empty message text buf:""
+C empty message binary buf:""
+C empty close 1005 "" readyState=3
+C sizes upgrade 101
+C sizes open protocol=""
+C sizes message binary buf:125:dccf4bd5fdfc
+C sizes message binary buf:126:60fc5d6a45f3
+C sizes message binary buf:127:bebc42d2d3d1
+C sizes message binary buf:65535:7a2d53f5d1b2
+C sizes message binary buf:65536:5c8ac5c8b9e5
+C sizes message binary buf:70000:913526e9bdb1
+C sizes message binary buf:5242880:e6e7c2ff9711
+C sizes message text buf:126:d1c4e44be298
+C sizes close 1000 "" readyState=3
+C buffered upgrade 101
+C buffered open protocol=""
+C buffered bufferedAmount before=0
+C buffered bufferedAmount>0 after send=true
+C buffered send callback error=none
+C buffered message binary buf:8388608:a7e8bc1edfc3
+C buffered bufferedAmount at echo=0
+C buffered close 1000 "" readyState=3
+C client-fragments upgrade 101
+C client-fragments open protocol=""
+C client-fragments message text buf:"abcdef"
+C client-fragments message binary buf:"\u0001\u0002\u0003\u0004"
+C client-fragments close 1000 "" readyState=3
+C server-fragments upgrade 101
+C server-fragments open protocol=""
+C server-fragments message text buf:"abcdef"
+C server-fragments message binary buf:"\u0001\u0002\u0003"
+C server-fragments message binary buf:300000:74a10e563f9d
+C server-fragments close 1000 "sent" readyState=3
+C server-ping upgrade 101
+C server-ping open protocol=""
+C server-ping ping buf:"hi"
+C server-ping message text buf:"pong:hi"
+C server-ping close 1000 "" readyState=3
+C client-ping upgrade 101
+C client-ping open protocol=""
+C client-ping pong buf:"cp"
+C client-ping close 1000 "" readyState=3
+C server-close upgrade 101
+C server-close open protocol=""
+C server-close close 4002 "srv" readyState=3
+C server-close-empty upgrade 101
+C server-close-empty open protocol=""
+C server-close-empty close 1005 "" readyState=3
+C client-close upgrade 101
+C client-close open protocol=""
+C client-close readyState after close()=2
+C client-close close 4001 "bye" readyState=3
+C send-after-close upgrade 101
+C send-after-close open protocol=""
+C send-after-close bufferedAmount after late send=4
+C send-after-close send callback Error: WebSocket is not open: readyState 2 (CLOSING)
+C send-after-close close 1000 "" readyState=3
+C terminate upgrade 101
+C terminate open protocol=""
+C terminate readyState after terminate()=2
+C terminate close 1006 "" readyState=3
+C close-connecting readyState after close()=2
+C close-connecting error Error: WebSocket was closed before the connection was established
+C close-connecting close 1006 "" readyState=3
+C send-connecting threw Error: WebSocket is not open: readyState 0 (CONNECTING)
+C send-connecting threw Error: WebSocket is not open: readyState 0 (CONNECTING)
+C send-connecting error Error: WebSocket was closed before the connection was established
+C send-connecting close 1006 "" readyState=3
+C close-bad-code upgrade 101
+C close-bad-code open protocol=""
+C close-bad-code threw TypeError: First argument must be a valid error code number
+C close-bad-code readyState after throw=2
+C close-bad-code no throw
+C close-bad-code close 1006 "" readyState=3
+C close-long-reason upgrade 101
+C close-long-reason open protocol=""
+C close-long-reason threw RangeError: The message must not be greater than 123 bytes
+C close-long-reason close 1006 "" readyState=3
+C ping-too-long upgrade 101
+C ping-too-long open protocol=""
+C ping-too-long threw RangeError: The data size must not be greater than 125 bytes
+C ping-too-long close 1000 "" readyState=3
+C refused error Error: connect ECONNREFUSED 127.0.0.1:<port> code=ECONNREFUSED
+C refused close 1006 "" readyState=3
+C bad-accept upgrade 101
+C bad-accept error Error: Invalid Sec-WebSocket-Accept header
+C bad-accept close 1006 "" readyState=3
+C status-400 error Error: Unexpected server response: 400
+C status-400 close 1006 "" readyState=3
+C bad-upgrade upgrade 101
+C bad-upgrade error Error: Invalid Upgrade header
+C bad-upgrade close 1006 "" readyState=3
+C invalid-utf8 upgrade 101
+C invalid-utf8 open protocol=""
+C invalid-utf8 error Error: Invalid WebSocket frame: invalid UTF-8 sequence code=WS_ERR_INVALID_UTF8
+C invalid-utf8 close 1006 "" readyState=3
+C bad-opcode upgrade 101
+C bad-opcode open protocol=""
+C bad-opcode error RangeError: Invalid WebSocket frame: invalid opcode 3 code=WS_ERR_INVALID_OPCODE
+C bad-opcode close 1006 "" readyState=3
+C masked upgrade 101
+C masked open protocol=""
+C masked error RangeError: Invalid WebSocket frame: MASK must be clear code=WS_ERR_UNEXPECTED_MASK
+C masked close 1006 "" readyState=3
+C bad-close-code upgrade 101
+C bad-close-code open protocol=""
+C bad-close-code error RangeError: Invalid WebSocket frame: invalid status code 1005 code=WS_ERR_INVALID_CLOSE_CODE
+C bad-close-code close 1006 "" readyState=3
+C rsv1 upgrade 101
+C rsv1 open protocol=""
+C rsv1 error RangeError: Invalid WebSocket frame: RSV1 must be clear code=WS_ERR_UNEXPECTED_RSV_1
+C rsv1 close 1006 "" readyState=3
+C ping-126 upgrade 101
+C ping-126 open protocol=""
+C ping-126 error RangeError: Invalid WebSocket frame: invalid payload length 126 code=WS_ERR_INVALID_CONTROL_PAYLOAD_LENGTH
+C ping-126 close 1006 "" readyState=3
+C handshake-timeout error Error: Opening handshake has timed out
+C handshake-timeout close 1006 "" readyState=3
+C max-payload upgrade 101
+C max-payload open protocol=""
+C max-payload error RangeError: Max payload size exceeded code=WS_ERR_UNSUPPORTED_MESSAGE_LENGTH
+C max-payload close 1006 "" readyState=3
+C subprotocol upgrade 101
+C subprotocol open protocol="chat"
+C subprotocol close 1000 "" readyState=3
+C no-subprotocol upgrade 101
+C no-subprotocol error Error: Server sent no subprotocol
+C no-subprotocol close 1006 "" readyState=3
+C headers upgrade 101
+C headers open protocol=""
+C headers message text buf:"x-test=v1 host-ok=true"
+C headers close 1000 "" readyState=3
+C invalid-arguments threw SyntaxError: The URL's protocol must be one of "ws:", "wss:", "http:", "https:", or "ws+unix:"
+C invalid-arguments threw SyntaxError: The URL contains a fragment identifier
+C invalid-arguments threw SyntaxError: An invalid or duplicated subprotocol was specified
+C invalid-arguments threw SyntaxError: An invalid or duplicated subprotocol was specified
+C invalid-arguments threw TypeError: Invalid character in header content ["X-Bad"] code=ERR_INVALID_CHAR
+C unix upgrade 101
+C unix open protocol=""
+C unix message text buf:"over unix"
+C unix close 1000 "" readyState=3
+C tls upgrade 101
+C tls open protocol=""
+C tls message binary buf:70000:913526e9bdb1
+C tls close 1000 "" readyState=3
+C tls-untrusted error Error: self-signed certificate; if the root CA is installed locally, try running Node.js with --use-system-ca code=DEPTH_ZERO_SELF_SIGNED_CERT
+C tls-untrusted close 1006 "" readyState=3
+C event-target event open type=open
+C event-target event message str:"t"
+C event-target event message arraybuffer:3:7037807198c2
+C event-target event close code=4003 reason="et" wasClean=true
+C paseo-transport transport open supportsDrain=true
+C budgeted send settled bytes=18 error=false
+C budgeted send settled bytes=18 error=false
+C paseo-transport transport message isBinary=false str:"hello transport"
+C paseo-transport transport message isBinary=true arraybuffer:3:aa922f6057f3
+C paseo-transport transport close code=1000 reason="transport done"
+C server-head-bytes status="HTTP/1.1 101 Switching Protocols" frame opcode=1 "head" close=1000
+C server-unmasked status="HTTP/1.1 101 Switching Protocols" close=1002
+C server-missing-key status="HTTP/1.1 400 Bad Request" body="Missing or invalid Sec-WebSocket-Key header"
+C server-bad-version status="HTTP/1.1 400 Bad Request" "Sec-WebSocket-Version: 13, 8" body="Missing or invalid Sec-WebSocket-Version header"
+C server-wrong-path status="HTTP/1.1 400 Bad Request" body="Bad Request"
+C server-verify-reject error Error: Unexpected server response: 403
+C server-verify-reject close 1006 "" readyState=3
+C server-max-payload upgrade 101
+C server-max-payload open protocol=""
+C server-max-payload close 1009 "" readyState=3
+C server-pause upgrade 101
+C server-pause open protocol=""
+C server-pause message text buf:"one"
+C server-pause message text buf:"two"
+C server-pause close 1000 "" readyState=3
+C DONE

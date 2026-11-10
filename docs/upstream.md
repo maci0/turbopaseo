@@ -1,0 +1,80 @@
+# Upstream candidates
+
+Changes and findings from this work that are worth sending upstream on their own merits, whether or not anyone compiles with scriptc. Each entry says what was verified. Entries that only exist to satisfy scriptc do not belong here; they are in [patches.md](patches.md).
+
+## Sent and checked (2026-11-10)
+
+| Candidate | Upstream state when checked | Action |
+| --- | --- | --- |
+| ws: `@param` tags without a parameter name | Still present on `master` (8.22.2), in two places: `emitErrorAndClose` and `senderOnError`. No existing PR. | PR opened: https://github.com/websockets/ws/pull/2356 |
+| ws: `@return {(Error\|RangeError)}` on `Receiver.createError` | Not checked on `master`. Cosmetic: the union is redundant, not wrong. | Not sent. |
+| undici-types: `bytes()` missing on the fetch body mixin | Fixed upstream: current `types/fetch.d.ts` in nodejs/undici declares `readonly bytes: () => Promise<Uint8Array>` (undici-types 8.12.4). `@types/node` 20 still pins `undici-types ~6.21.0`. | Nothing to send. Goes away with a newer `@types/node`. |
+| @modelcontextprotocol/sdk: `"./*"` export maps `.js` subpaths to a nonexistent `*.js.d.ts` | Still present in 1.32.2 on the `v1.x` maintenance branch (`main` is v2 with a different package layout). Already reported upstream as issue #2701: under Deno every `.js` subpath import fails with TS2307. PR #2702 is open with the same fix we carry (an explicit `"./*.js"` entry); an earlier PR, #2740, was closed. Verified here with `tsc --traceResolution` on 1.32.2: the `types` condition targets `dist/esm/types.js.d.ts`, which does not exist, and tsc recovers by falling through to `import`; with the extra entry the lookup resolves directly, and ESM and CommonJS imports still load under Node. | Not sent: it would duplicate https://github.com/modelcontextprotocol/typescript-sdk/pull/2702. Our local patch can be dropped when that lands in a 1.x release. |
+| qrcode: `unescape()` in `lib/core/segments.js` | Still present on `master`. The repository's last push was 2024-08-23, with 128 open issues. | Not sent: the idiom works, the change is cosmetic, and the project looks unmaintained. |
+| sherpa-onnx-node: no `free` method, `dictDir` dropped | Not checked against upstream; the claim itself is not re-verified. | Not sent. Needs verification first. |
+| Paseo: `fetch` ignores `HTTP_PROXY`/`HTTPS_PROXY` on Node 26 | Confirmed on upstream `main` (`4c9c59e`, 0.15.4) with Node 26.13.0: 12 of 22 tests in `packages/server/src/server/network/network.test.ts` fail. Cause: Node 26 bundles undici 8, whose global `fetch` reads the dispatcher from `Symbol.for("undici.globalDispatcher.2")`; the locked npm undici 7.24.8 writes only `...globalDispatcher.1`, so Paseo's `EnvHttpProxyAgent` never reaches `fetch`. undici 7.27.0 writes both (nodejs/undici#5319). Affected: a daemon run from a checkout (or any install that resolved undici 7.24.8 to 7.26.x) on Node 26. Not affected: fresh npm installs (resolve 7.30.2), CI, Docker and Nix (Node 22), the desktop app (Electron's Node 24). No existing upstream issue or PR found. | Sent on 2026-11-10: bug report https://github.com/getpaseo/paseo/issues/9282 and PR https://github.com/getpaseo/paseo/pull/9283 (one commit raising `undici` to `^7.27.0` in `packages/server`; rebased onto `main` at `63ea3e5`, where the network test file passes 22 of 22 on Node 26.13.0). Paseo closes PRs by default and asks that the submitter has tested the change; the PR's QA section quotes the commands run on this machine and their output and does not claim manual testing. Verified on Node 26.13.0 on Linux only. |
+| Paseo: remaining candidates | See "Verification pass of 2026-11-10" below. | Three more PRs sent; the rest documented there. |
+
+## Bugs in dependencies
+
+| Project | Issue | Evidence | Fix |
+| --- | --- | --- | --- |
+| ws 8.20.0 | `lib/websocket.js`: the JSDoc for `emitErrorAndClose` reads `@param {Error} The error to emit`, with no parameter name, so `err` is undocumented and untyped for any tool that reads JSDoc. | The line in the published 8.20.0 tarball; TypeScript's JS checking and scriptc both treat `err` as untyped. | `@param {Error} err The error to emit`. In `patches/ws+8.20.0.patch`. |
+| ws 8.20.0 | `lib/receiver.js`: `createError` declares `@param {function(new:Error\|RangeError)} ErrorCtor` and `@return {(Error\|RangeError)}`. `RangeError` is a subclass of `Error`, so the union adds nothing. | Published tarball. Cosmetic. | `@return {Error}`. In the same patch. |
+| @modelcontextprotocol/sdk 1.29.0 | `package.json` exports: Paseo imports subpaths with a `.js` suffix (`@modelcontextprotocol/sdk/types.js`), which match the `"./*"` entry, whose `types` condition then points at `dist/esm/types.js.d.ts`. That file does not exist. tsc tolerates it; stricter resolvers report "no declarations". | The exports map in the installed package; the failing resolution was reproduced with scriptc, and adding an explicit `"./*.js"` entry fixes it. | Add `"./*.js": { "types": "./dist/esm/*.d.ts", "import": "./dist/esm/*.js", "require": "./dist/cjs/*.js" }`. In `patches/@modelcontextprotocol+sdk+1.29.0.patch`. Not checked against newer SDK releases. |
+| undici-types 6.21.0 | `fetch.d.ts`: `BodyMixin` has no `bytes()`, though Node 22 and later implement `Response.prototype.bytes()`. | Declaration file in the installed package; `@types/node` 20 depends on this version. Later undici-types versions were reported to declare it; not checked here. | Covered by moving to a newer `@types/node`/undici-types. Local one-line patch in `patches/undici-types+6.21.0.patch`. |
+| qrcode 1.5.4 | `lib/core/segments.js` measures UTF-8 length with `unescape(encodeURIComponent(s)).length`. `unescape` is deprecated (Annex B). | Published tarball. | `Buffer.byteLength(s)` or a manual count. In `patches/qrcode+1.5.4.patch`. |
+| sherpa-onnx-node 1.12.28 | The addon's classes have no `free` method, and the Kokoro config field `dictDir` is dropped without an error. | Reported by the sherpa investigation from the addon sources in `.scratch/sherpa/upstream/`; not re-verified here. | Report to sherpa-onnx. |
+
+## Findings in Paseo
+
+| Area | Issue | Evidence | Status |
+| --- | --- | --- | --- |
+| Proxy support on Node 26 | See the table above: confirmed, root cause found, fix ready. | Reproduction, a 127.0.0.1 proxy matrix across undici versions, and Node's bundled undici sources per Node version are in `.scratch/proxy-node26/`. | Sent: issue #9282, PR #9283. |
+| Speech: native memory | `speech/providers/local/` calls `free?.()` on sherpa objects. With the current addon these calls do nothing, so recognizers, VAD and TTS objects are released only by garbage collection. | Same source as the sherpa entry above. | Either drop the calls or fix the addon. |
+| Structured output | A user-supplied JSON Schema of the form `{"$ref": "#"}` (a reference cycle that never descends into the data) makes ajv throw `RangeError: Maximum call stack size exceeded` at validation time. | Reproduced under Node while comparing ajv with the interpreting validator (`json-schema-validator.test.ts`). Whether `agent-response-loop.ts` catches it was not checked. | Worth a guard in Paseo, or an ajv issue. |
+| MCP SDK dependency | `@hono/node-server` resolves to 1.19.14 through `@modelcontextprotocol/sdk` 1.29.0 (`^1.19.9`). Newer SDK releases were reported to accept `^1.19.9 \|\| ^2.0.5`; not checked here. | `package-lock.json`. | Informational. |
+| Flaky or time-dependent test | `packages/server/src/services/github-service.test.ts:941`, "polls PR status at slow cadence after stable checks", fails on unmodified upstream `github-service.ts` in this environment. | Two runs out of two by the services fix agent, with the pristine file swapped back in. Cause not investigated; it may depend on the wall clock. | Needs a look upstream. |
+
+## Not upstreamable as they stand
+
+The source edits in `patches/paseo/source.patch` replace forms scriptc cannot compile with equivalent ones (typed locals, a `WebSocket` subclass instead of reassigning `socket.send`, data properties instead of getters). They are behaviour-neutral under Node but have no value to upstream on their own.
+
+The supervisor changes restore upstream behaviour that an earlier session of this project had broken; nothing in them is new relative to upstream except dependency-free log rotation, which upstream does not need.
+
+## Verification pass of 2026-11-10
+
+Fourteen candidates noticed during the native work were checked against Paseo `main` at `63ea3e5` (and each dependency's default branch) on Linux with Node 26.13.0 and npm 12.2.2. For each: is it still present, is it already reported or being fixed, does it reproduce, and is there a correct fix with a regression test. Material for each is in `.scratch/upstream-fixes/`.
+
+### Sent
+
+| Bug | Evidence | Sent |
+| --- | --- | --- |
+| Paseo: a daemon started from a Claude Code terminal passes `CLAUDECODE` and `CLAUDE_CODE_ENTRYPOINT` to Claude CLIs launched through `node` or `bun`. `buildSelfNodeCommand` (`packages/server/src/server/paseo-env.ts`) started from the daemon's `process.env` and overlaid the provider environment, so keys the provider environment had removed came back. | With the two variables stubbed in the test process, 6 of 11 cases in `agent.env.test.ts` fail on `main`; a provider command override `["node", ...]` printed both variables from the child. After the fix: `paseo-env` 8 of 8, `spawn` 9 of 9, `agent.env` 11 of 11. Not tested with a real Claude CLI, or on macOS and Windows. Related but different upstream: #3618 (open), and open PR #8577 touches the same files. | Issue https://github.com/getpaseo/paseo/issues/9286, PR https://github.com/getpaseo/paseo/pull/9287 |
+| Paseo: on Linux, removing a watched directory also reports a delete for a child named after it (`dir/dir`, `dir/nested/nested`). Node's `fs.watch` names a watched directory's own deletion after the directory, and the Linux backend resolved that name against the directory. | A new test fails 3 of 3 runs on `main` with the two extra paths; after the fix it and a second test (a real file named `same/same` is still reported) pass 5 of 5, and all five file-observer test files pass. macOS and Windows backends unchanged and not run. | Issue https://github.com/getpaseo/paseo/issues/9288, PR https://github.com/getpaseo/paseo/pull/9289 |
+| Paseo: flaky test "leaves a worker from a newer Paseo running, reports it incompatible, and closes it on a kill stop" in `worker-terminal-manager.test.ts`. Cleanup treats the worker as gone once its socket refuses connections, which happens before the process exits; the test checked the pid immediately. Test-only. | Failed 3 of 4 runs alone on `main`, twice; `/proc/<pid>/status` showed the worker still running. After making the test wait for the pid, as its neighbours do: 6 of 6 alone and the whole file 2 of 2. Already reported upstream as #8581, with no fix PR. | PR https://github.com/getpaseo/paseo/pull/9290 (closes #8581) |
+| pino-pretty 13.1.3: `@typedef {PinoPrettyOptions} BuildStreamOpts` followed by `@property` tags | TypeScript ignores `@property` tags on a typedef that aliases another type, so `destination`, `append`, `mkdir` and `sync` are missing from the JSDoc type. On `master` (`10aba39`) `tsc --checkJs` reports 7 such errors in `index.js` (20 in total); with the fix 0 (14 in total, the rest unrelated). Comment-only change; `npm run lint` passes, `npm test` 351 of 351, `npm run test:types` not run. The published `index.d.ts` already lists these options, so package users see no difference. | PR https://github.com/pinojs/pino-pretty/pull/697, opened by the repository owner on 2026-11-10. A maintainer answered with #698 (https://github.com/pinojs/pino-pretty/pull/698), which fixes other invalid JSDoc and adds a `jsdoc -r index.js lib/` CI check; it calls #697 "broken JSDoc". Checked: the `jsdoc` tool (4.x, as in #698) rejects the `&` intersection in #697 ("Expected \"|\" but \"&\" found", `index.js` line 171), and passes on #698. TypeScript ignores `@property` on an aliasing typedef and jsdoc rejects `&`, so no form satisfies both. Recommended: close #697 in favour of #698 (owner's call). |
+
+Paseo closes pull requests by default and may reopen the ones it takes forward; a closed PR there is not a verdict on the bug. Each PR's QA section quotes the commands run and their output, and lists what was not tested.
+
+### Reported without a fix
+
+Each was reproduced on unmodified `main` (`63ea3e5`) before filing. No patch exists for any of them.
+
+| Bug | Finding | Issue |
+| --- | --- | --- |
+| Paseo: `{"$ref": "#"}` as a structured-output schema | ajv compiles it and throws `RangeError: Maximum call stack size exceeded` at validation. The error escapes `getStructuredAgentResponse` after the first agent call; the CLI rethrows it and OpenCode fails the turn with that message. Nothing crashes. Open choice for upstream: reject the schema up front, or report a validation error. | https://github.com/getpaseo/paseo/issues/9292 |
+| Paseo `headless-terminal.test.ts` "buffer pool offset" on Node 26 | The test asserts Buffer pool internals (offset 0, size exactly `poolSize`); on Node 26 the first pooled slice starts at offset 48, so its precondition fails before any Paseo code runs. The width check itself passes. Test-only. | https://github.com/getpaseo/paseo/issues/9293 |
+| Paseo `github-service.test.ts:941`, "polls PR status at slow cadence after stable checks" on Node 26 | Fails every run on this machine regardless of system date: the second poll lands at 125000 instead of 120000, one 5-second slot late. Upstream's CI passes on the same commit (Node 22). Cause not determined; only Node 26 could be tested here. | https://github.com/getpaseo/paseo/issues/9294 |
+
+### Not sent
+
+| Candidate | Finding | Why not sent |
+| --- | --- | --- |
+| Paseo `controller.test.ts:585`, `livePaths.map(lstat)` | Real, test-only: the array index reaches `lstat` as its options argument, which Node 26 rejects. | Already reported upstream (#8572, open); an earlier fix PR (#8580) was closed unmerged. |
+| Paseo `index.posix.test.ts` "npm plugin installation" | Real, test helper only: npm 12 changed `npm pack --json` from an array to an object keyed by package name. | Being fixed upstream: PRs #8534 and #8551 (open), issue #7794. |
+| Paseo `acp-startup-exit.test.ts` | Environmental: the `DEP0205` warning in stderr comes from tsx 4.21.0 calling `module.register()`. | Not Paseo code. |
+| Paseo `ParsedDiffFile` lacking `oldPath` | Not a bug: every producer in `checkout-git.ts` adds `oldPath` explicitly; no user-visible effect. A duplicate type that has drifted from the schema. | Nothing to fix. |
+| Paseo `toCodexMcpConfig` cast to `{ type: never }` | Not a bug: a working exhaustiveness check (`tsc` rejects a new config type; the branch throws at run time). | Nothing to fix. |
+| quick-format-unescaped skipping `args[0]` after an object format argument | The project's own test asserts that output; the README does not describe the case. | Tested behaviour, not a bug by the project's own definition. |
+| sherpa-onnx-node: no `free()`, `dictDir` dropped | Not bugs: native objects are released by a finalizer on garbage collection, and the C API marks `dict_dir` as unused. Paseo's `free?.()` calls do nothing and it passes a field that is ignored. | Nothing to send upstream. A cleanup in Paseo at most. |
