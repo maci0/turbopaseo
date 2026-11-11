@@ -11,10 +11,33 @@ paseo/          submodule: upstream Paseo, tag v0.15.4
 patches/        patches this repo applies: paseo/ to Paseo source, the rest to node_modules
 work/paseo/     submodule: maci0/paseo branch turbopaseo, the patched tree where npm and scriptc run
 native/         stand-ins for packages that cannot run natively, and the native entries
-dist/           make dist: relocatable CLI and daemon with their runtime files (gitignored)
+dist/           make dist: paseo-<version>-<host>/ and its .tar.gz (gitignored)
 builds/         native outputs (gitignored)
+scripts/tp      install, update and remove a dist build
 Makefile        host build and cross targets
 ```
+
+## Install
+
+Needs the tools under [Build the host binary](#build-the-host-binary). `tp` builds Paseo from this checkout and installs it into `~/.local` (`TP_PREFIX` overrides that): the release in `opt/turbopaseo/paseo-<version>-<host>/`, symlinks at `bin/paseo` and `bin/tp`.
+
+```
+git clone --recurse-submodules https://github.com/maci0/turbopaseo
+cd turbopaseo
+make OPTIMIZATION=dev paseo-deps dist   # release builds of the CLI fail right now (Status)
+scripts/tp install
+paseo --version
+```
+
+```
+tp status        # installed release, link targets, checkout commit
+OPTIMIZATION=dev tp update   # git pull --ff-only and submodule update, then make paseo-deps dist and install
+tp self-update   # only the git part: updates tp itself, which links back into the checkout
+tp install dist/paseo-0.15.4-linux-x64.tar.gz
+tp remove        # deletes the release and both links; ~/.paseo stays
+```
+
+Tested: `tp install`, `status`, `remove` and `self-update` (in throwaway clones), and a package installed through the `bin/paseo` symlink running `daemon config set`, `daemon start`, `status`, `ls`, `provider ls` and `daemon stop` with the repo hidden. Not yet run from a fresh clone. `tp install` checks the tarball's `.sha256` and refuses to replace a `bin/paseo` or `bin/tp` that is not its own symlink, such as an npm-installed Paseo. A running daemon keeps the old binary until `paseo daemon restart`. The native daemon uses `~/.paseo` and port 6767 like Node Paseo, so stop a Node daemon first or pass `--home` to another directory.
 
 ## Build the host binary
 
@@ -39,14 +62,14 @@ The four targets and the runtime packs they need are in [docs/targets.md](docs/t
 
 ## Status
 
-Updated 2026-11-10 (evening). "IR" means scriptc's frontend accepts the program (`scriptc build --emit=ir`, typecheck plus lowering). "Binary" means it also went through LLVM and linked. "Runs" means the native binary was executed.
+Updated 2026-11-11. "IR" means scriptc's frontend accepts the program (`scriptc build --emit=ir`, typecheck plus lowering). "Binary" means it also went through LLVM and linked. "Runs" means the native binary was executed.
 
 | Piece | IR | Binary | Runs | Notes |
 | --- | --- | --- | --- | --- |
 | Base version | n/a | n/a | n/a | Rebased from v0.15.3 to v0.15.4 on 2026-11-10 (4 upstream commits: version bumps and four Claude provider files; no dependency changes; the only overlap with our edits, `packages/server/package.json`, merged cleanly). Every result below was measured on v0.15.3 unless it says otherwise; `make paseo-check` and the CLI comparisons have not been rerun on v0.15.4 yet, because the server source is mid-edit. `patches/paseo/source.patch` is also behind the work tree for the same reason. |
 | Patched tree as normal Paseo under Node | n/a | n/a | yes | `make paseo-check`: `typecheck:server`, `build:server`, JS CLI `--help` and `--version` |
 | Daemon supervisor (`packages/server/scripts/supervisor-entrypoint.ts`) | yes | yes | yes | Part of `builds/paseo-daemon-linux-x64` (`make daemon`, dev build 7 to 13 min, about 890 MB). Starts natively and forks the native worker over IPC. |
-| Daemon worker (`packages/server/src/server/daemon-worker.ts`, the actual daemon) | yes | yes | yes | Starts natively, loads all 13 built-in plugins, and serves the CLI (rows below). Verified in an isolated home on its own port, with no agent CLIs on `PATH`, no connection to the host daemon and the host's `~/.paseo` unchanged. Known gaps: on stop the worker logs `agentManager.flushForShutdown is not a function` and exits with code 1 (cause not found yet); agent providers were not run. |
+| Daemon worker (`packages/server/src/server/daemon-worker.ts`, the actual daemon) | yes | yes | yes | Starts natively, loads all 13 built-in plugins, and serves the CLI (rows below). Verified in an isolated home on its own port, with no agent CLIs on `PATH`, no connection to the host daemon and the host's `~/.paseo` unchanged. Known gaps: on stop the worker logs `agentManager.flushForShutdown is not a function` and exits with code 1. The cause is a scriptc prototype bug ([patches](docs/patches.md)); the fix is in the source, and the rebuilt prototype is complete in the IR, but no daemon built with it has been run yet. Agent providers were not run. |
 | Supervisor under Node | n/a | n/a | tests pass | Upstream behaviour restored (fork with IPC, readiness, heartbeat, restart). `supervisor.readiness`, `terminal-cleanup` and `logging` tests failed on the earlier rewrite and pass now. Log rotation is dependency-free and matches `rotating-file-stream` 3.2.9 in names, sizes and history. |
 | `ws` (patched), module load | yes | yes | yes | Loads at startup in the CLI binary. |
 | WebSocket client (`native/ws/client.ts`, in place of `ws`) | yes | yes | yes | Selected by the `paths` entry in `native/entries/cli/tsconfig.json`. `native/ws/test.sh`: 48 scenarios identical to real `ws` in all four client/server pairings. Used by the CLI runs above. No compression, redirects, proxy agent or URL credentials. |
@@ -56,14 +79,14 @@ Updated 2026-11-10 (evening). "IR" means scriptc's frontend accepts the program 
 | `@getpaseo/client`: websocket transport, relay E2EE transport, ssh tunnel, buffering, `hosts` | yes | not built | no | |
 | `@getpaseo/client`: `DaemonClient` class | yes | not built | no | 4 minutes of frontend time on its own |
 | `@getpaseo/client/node` (`createHostClient`) | yes | yes | no | Compiles from `dist` after the source patch. |
-| CLI (`make`, entry `native/entries/cli/index.ts`) | yes | yes | yes | `builds/paseo-linux-x64`. `OPTIMIZATION=release`: 21 min, 208 MB, and the 22 no-daemon commands below pass on it. `OPTIMIZATION=dev`: about 2 min 15 s, 411 MB with debug info. |
+| CLI (`make`, entry `native/entries/cli/index.ts`) | yes | yes | yes | `builds/paseo-linux-x64`. `OPTIMIZATION=dev`: 2 to 10 min, about 560 MB with debug info; `daemon config set` and `unset` write the same `config.json` as the Node CLI. `OPTIMIZATION=release` built earlier (21 min, 208 MB, the 22 no-daemon commands below passed on it) but now fails after 21 min with `SC3004` at `index.ts:1:1`, in both `make dist` and `make linux-x64`; the dev build of the same source passes. Not bisected yet. |
 | CLI commands without a daemon | n/a | n/a | yes | 22 of 22 identical to the Node CLI in stdout, stderr and exit code: `--version`, `--help`, 14 subcommand help screens, unknown commands, `daemon status`, and `ls` with no daemon running. |
 | CLI commands against a running Node daemon | n/a | n/a | yes | 17 of 17 identical to the Node CLI against an isolated daemon (own home, port 47130): `ls` variants, `daemon status`, `provider ls`, `workspace ls`, `project ls`, `schedule ls`, `terminal ls`, `host ls`, `heartbeat ls`, `worktree ls`, `plugin ls`, `inspect` and `logs` of a missing agent. `daemon status` can differ between two runs by a time-dependent field. Rechecked on the release binary. |
 | CLI state-changing commands against a running Node daemon | n/a | n/a | yes | Same results as the Node CLI for one scenario: `workspace create`, `terminal create`, `terminal send-keys`, `terminal capture` (the typed marker comes back), `terminal kill`, `workspace archive`. Found and fixed a native crash in the generated message validators (issue paths that mix names and indexes). Not tested: `run`, `send`, `attach` and anything else that needs an agent provider (they would spend provider credits), relay and SSH targets, hub commands. |
 | Native CLI against the native daemon | n/a | n/a | yes | `daemon status`, `ls`, `provider ls`, `workspace ls`, `terminal ls`: exit 0. State-changing: `workspace create`, `terminal create`, `terminal send-keys`, `terminal capture` (shows the typed command's output), `terminal kill`, `workspace archive` all succeed. Not compared line by line with the Node CLI yet. Known gap: `paseo daemon config set` fails natively (the CLI compiles the server from its dist JavaScript, where the config walk is untyped). |
 | Terminals (`node-pty` replacement) | yes | yes | yes | `native/pty/`: `forkpty` C shim through scriptc FFI with node-pty's `spawn` members. `native/pty/test.sh` passes on Linux (spawn, output, input, resize, kill, reaping, spawn errors). Not wired into Paseo. macOS unverified. |
 | Cross targets (`linux-arm64`, `darwin-x64`, `darwin-arm64`) | no | no | no | not attempted; need the runtime packs and zig |
-| Daemon runtime files (skills, builtin plugins, ONNX voice asset, shell integration, OpenCode bridge, ICU data) | n/a | n/a | yes | `make dist` puts them beside the binaries in `dist/paseo-<host>/`; a native binary finds them next to `process.execPath`. A copy run from `~/.cache` with `work/`, `native/` and `builds/` hidden in a mount namespace starts its daemon through `paseo daemon start`, answers `daemon status`, `ls` and `provider ls`, and loads all 13 built-in plugins. |
+| Daemon runtime files (skills, builtin plugins, ONNX voice asset, shell integration, OpenCode bridge, ICU data) | n/a | n/a | yes | `make dist` puts them beside the binaries in `dist/paseo-<version>-<host>/`; a native binary finds them next to `process.execPath`. A copy run from `~/.cache` with `work/`, `native/` and `builds/` hidden in a mount namespace starts its daemon through `paseo daemon start`, answers `daemon status`, `ls` and `provider ls`, and loads all 13 built-in plugins. |
 | Benchmarks | n/a | n/a | no | nothing to measure yet |
 
 ### Native stand-ins

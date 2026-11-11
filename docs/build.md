@@ -67,4 +67,4 @@ The frontend (parsing, type checking, lowering, LLVM IR generation) runs on one 
 | `builtin-plugins/`, `skills/`, `shell-integration/`, `opencode/` | files the daemon reads at run time, from Paseo's server build |
 | `LICENSE` | Paseo's license |
 
-A native binary finds these files beside `process.execPath`, so the directory can move. Installing through a symlink to `paseo` from a `bin` directory is not tested yet.
+A native binary finds these files beside `process.execPath`, so the directory can move, and a symlink to `paseo` from a `bin` directory works: the CLI starts the `paseo-daemon` beside the resolved binary.
