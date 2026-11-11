@@ -51,22 +51,20 @@ scriptc build file.ts --emit=ir -o out.ir --node-islands=off
 
 The frontend (parsing, type checking, lowering, LLVM IR generation) runs on one thread, and scriptc has no setting to change that; it is skipped only when no input changed. Code generation is already parallel: the LLVM helper compiles the executable in partitions, one thread per hardware thread, and caches each partition, so a rebuild recompiles only the partitions whose functions changed. Separate programs can build side by side, which is why `make dist` builds the CLI and the daemon at the same time.
 
-The daemon is not built yet. `packages/server/scripts/supervisor-entrypoint.ts` forks `packages/server/src/server/daemon-worker.ts`; scriptc supports `fork()` with an IPC channel when the worker path is a static `new URL(..., import.meta.url)`, and embeds the worker in the same binary.
+`make daemon` builds `builds/paseo-daemon-<host>` from `native/entries/daemon/index.ts`. `packages/server/scripts/supervisor-entrypoint.ts` forks `packages/server/src/server/daemon-worker.ts`; scriptc supports `fork()` with an IPC channel when the worker path is a static `new URL(..., import.meta.url)`, and embeds the worker in the same binary.
 
 ## dist
 
-`make dist` builds the host CLI and the daemon (both rebuilt every time, at `OPTIMIZATION`, at the same time) and gathers them into `dist/paseo-<host>/`:
+`make dist` builds the host CLI and the daemon (both rebuilt every time, at `OPTIMIZATION`, `release` by default, at the same time), gathers them into `dist/paseo-<version>-<host>/`, and packs that directory as `dist/paseo-<version>-<host>.tar.gz` with its SHA-256 sum in `.tar.gz.sha256`. `<version>` is the `paseo/` submodule's version (`0.15.4`).
 
 | Path | What |
 | --- | --- |
 | `paseo` | CLI (`builds/paseo-<host>`) |
-| `paseo-daemon` | daemon (`builds/paseo-daemon-<host>`) |
+| `paseo-daemon` | daemon (`builds/paseo-daemon-<host>`); the native CLI starts the `paseo-daemon` beside its own binary |
 | `icudt78l.dat` | ICU data, read from the binary's own directory |
 | `lib/libsherpa-onnx-c-api.so`, `lib/libonnxruntime.so` | speech libraries, found through the daemon's RUNPATH `$ORIGIN/lib` |
 | `assets/silero_vad.onnx` | voice activity model |
+| `builtin-plugins/`, `skills/`, `shell-integration/`, `opencode/` | files the daemon reads at run time, from Paseo's server build |
+| `LICENSE` | Paseo's license |
 
-The directory is not relocatable yet. The daemon locates built-in plugin manifests and shell integration through `import.meta.url`, which in a native binary is the build-time source path, so it reads them from `work/paseo`. Other runtime files may do the same (see below).
-
-## Layout of a finished binary
-
-The executable does not read `node_modules` at run time. Files the daemon still opens from disk (skills, builtin plugins, the ONNX voice asset, shell integration) are copied into the server `dist/` by Paseo's own build and are not embedded by scriptc. A CLI binary that gets past `SC3004` still needs those paths, or a later change that embeds them.
+A native binary finds these files beside `process.execPath`, so the directory can move. Installing through a symlink to `paseo` from a `bin` directory is not tested yet.

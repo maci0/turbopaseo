@@ -65,6 +65,7 @@ Node and the native binary both accept the datetime string `2020-01-01T00:00:00Z
 - `packages/client/src/node/index.ts` and `hosts/index.ts`: `supportsDrain` and `maxFrameBytes` on the wrapper transports are data properties that are assigned when the inner transport changes, not getters. scriptc rejects a getter where `DaemonTransport` declares a data property once both forms exist in one program.
 - `packages/client/src/timeline-subscription/index.ts`: `subscriptionId` is a getter in the object literal instead of `Object.defineProperty`.
 - `packages/protocol/src/chunked-transport.ts`: JSDoc `@type` and `@returns` on the write queue, so the emitted JS keeps a type for `completion`.
+- `packages/server/src/server/persisted-config.ts`: `editPersistedConfig` reads the last path part as `parts[parts.length - 1]`. The CLI compiles the server from `dist` JS, and there scriptc has no native type for the result of `parts.at(-1)` (`SC2011` at run time), so `paseo daemon config set` and `unset` failed.
 
 ## which
 
@@ -82,6 +83,7 @@ Hit while compiling the whole daemon (`make daemon`); each workaround is in `pat
 - `AsyncLocalStorage.getStore()` returns a copy of a plain record in a native binary (Node returns the stored object), so identity checks and later field changes are lost. The session delivery owners it stores are class instances, which keep their identity.
 - Reading a missing key of a `Record`, or index `0` of an empty array, whose element type is a protocol or persistence `z.infer` type throws in the daemon program (a checked read of `undefined`). `providerOverrideFor()` checks `key in record` first; `FileBackedProjectRegistry` checks the length.
 - A generic method cannot be called through an interface ("reading ... on this native class through an untyped value"), including a class field that holds a generic function. Plugin hooks reach Paseo's services through `PluginLifecycleHooks`, one non-generic method per hook, which `PluginService` implements with its generic `before` and `emit`.
+- Once untyped code writes a property onto a class instance, later calls on instances of that class read their methods from the class's run-time prototype. scriptc leaves out of that prototype any method whose result is a union of records holding an `AsyncGenerator`, and in the daemon every method declared after the first such one as well. On AgentManager that dropped 101 of 201 methods, `flushForShutdown` and `respondToPermission` among them; shutdown failed with "agentManager.flushForShutdown is not a function". `steerOrReplaceActiveTurn` returns its replaced turn as a class (`ReplacedActiveTurn`). A check over the daemon's IR (each `%prototype.data.*` function's `original` slots against its installed keys) then finds one method still left out, the private `PluginSettingsStore.stored`, whose three callers call it directly without the prototype.
 - `typeof` of an npm module in a type position makes scriptc compile that package (`SC2013` for `undici`). Node-only packages are described by a local interface instead.
 
 ## Adding a patch

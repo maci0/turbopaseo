@@ -2707,7 +2707,7 @@ index ccf29b1..e440975 100644
      onTestFinished(async () => {
        await manager.closeAgent(manager.listAgents()[0]!.id);
 diff --git a/packages/server/src/server/agent/agent-manager.ts b/packages/server/src/server/agent/agent-manager.ts
-index 94250e5..0b7e433 100644
+index 94250e5..9e6eaa4 100644
 --- a/packages/server/src/server/agent/agent-manager.ts
 +++ b/packages/server/src/server/agent/agent-manager.ts
 @@ -3,7 +3,7 @@ import type { AgentToolResult } from "@getpaseo/plugin/server";
@@ -2728,7 +2728,33 @@ index 94250e5..0b7e433 100644
    /** An internal workspace makes every agent created inside it internal. */
    clients?: ProviderClientMap;
    providerDefinitions?: ProviderEnabledMap;
-@@ -462,14 +462,16 @@ type ManagedAgentWithSession = ManagedAgentBase & {
+@@ -354,9 +354,22 @@ export interface AgentManagerOptions {
+   logger: Logger;
+ }
+ 
+-export type ActiveTurnSteerDispatchResult =
+-  | { status: "inactive" | "steered" }
+-  | { status: "replaced"; iterator: AsyncGenerator<AgentStreamEvent> };
++/**
++ * A class, not a record: in a native build, a class method whose result is a union of records
++ * holding an AsyncGenerator is left out of the class's run-time prototype, and in the daemon so
++ * is every method after it, so calls that read methods from the prototype fail with "is not a
++ * function".
++ */
++export class ReplacedActiveTurn {
++  readonly status = "replaced";
++  readonly iterator: AsyncGenerator<AgentStreamEvent>;
++
++  constructor(iterator: AsyncGenerator<AgentStreamEvent>) {
++    this.iterator = iterator;
++  }
++}
++
++export type ActiveTurnSteerDispatchResult = { status: "inactive" | "steered" } | ReplacedActiveTurn;
+ 
+ function stripSteerOptions(options?: AgentSteerOptions): AgentRunOptions | undefined {
+   if (!options) return undefined;
+@@ -462,14 +475,16 @@ type ManagedAgentWithSession = ManagedAgentBase & {
    session: AgentSession;
  };
  
@@ -2747,7 +2773,7 @@ index 94250e5..0b7e433 100644
  };
  
  type ManagedAgentRunning = ManagedAgentWithSession & {
-@@ -479,7 +481,7 @@ type ManagedAgentRunning = ManagedAgentWithSession & {
+@@ -479,7 +494,7 @@ type ManagedAgentRunning = ManagedAgentWithSession & {
  
  type ManagedAgentError = ManagedAgentWithSession & {
    lifecycle: "error";
@@ -2756,7 +2782,7 @@ index 94250e5..0b7e433 100644
    lastError: string;
  };
  
-@@ -594,7 +596,10 @@ interface SteerEventBarrier {
+@@ -594,7 +609,10 @@ interface SteerEventBarrier {
    events: AgentStreamEvent[];
  }
  
@@ -2768,7 +2794,7 @@ index 94250e5..0b7e433 100644
  const AgentIdSchema = z.guid();
  
  function isAgentBusy(status: AgentLifecycleStatus): boolean {
-@@ -747,7 +752,7 @@ export interface RetiredInternalAgent {
+@@ -747,7 +765,7 @@ export interface RetiredInternalAgent {
  }
  
  export class AgentManager {
@@ -2777,7 +2803,7 @@ index 94250e5..0b7e433 100644
    private readonly retiredInternalAgents = new Map<
      string,
      RetiredInternalAgent & { expiresAt: number }
-@@ -821,7 +826,11 @@ export class AgentManager {
+@@ -821,7 +839,11 @@ export class AgentManager {
      this.beforeSteerUnavailableFallback = options.beforeSteerUnavailableFallback;
      this.agentStreamCoalescer = new AgentStreamCoalescer({
        windowMs: options.agentStreamCoalesceWindowMs ?? AGENT_STREAM_COALESCE_DEFAULT_WINDOW_MS,
@@ -2790,7 +2816,7 @@ index 94250e5..0b7e433 100644
        onFlush: ({ agentId, item, provider, turnId }) => {
          const event = this.recordAndDispatchTimelineItem(agentId, item, provider, turnId);
          this.notifyForegroundTurnWaiters(agentId, event);
-@@ -1130,7 +1139,8 @@ export class AgentManager {
+@@ -1130,7 +1152,8 @@ export class AgentManager {
            return {
              sessions: sessions
                .filter((session) => matchesImportableSessionQuery(session, options?.query))
@@ -2800,7 +2826,7 @@ index 94250e5..0b7e433 100644
              error: null,
            };
          } catch (error) {
-@@ -1361,7 +1371,7 @@ export class AgentManager {
+@@ -1361,7 +1384,7 @@ export class AgentManager {
      this.assertAcceptingAgentRegistrations();
      const resolvedAgentId = validateAgentId(agentId ?? this.idFactory(), "createAgent");
      if (this.pluginLifecycle && !config.internal) {
@@ -2809,7 +2835,7 @@ index 94250e5..0b7e433 100644
          config,
          env: options.env,
        });
-@@ -1405,8 +1415,8 @@ export class AgentManager {
+@@ -1405,8 +1428,8 @@ export class AgentManager {
        launchEnv: options.env ? { ...options.env } : undefined,
        historyPrimed: true,
      });
@@ -2820,7 +2846,7 @@ index 94250e5..0b7e433 100644
          agent: describeHookAgent({ ...agent, title: agent.config.title }),
        });
      }
-@@ -2121,8 +2131,8 @@ export class AgentManager {
+@@ -2121,8 +2144,8 @@ export class AgentManager {
    ): Promise<ArchivedStoredAgentRecord> {
      const archivedRecord = buildArchivedAgentRecord(record, options);
      await this.requireRegistry().upsert(archivedRecord);
@@ -2831,7 +2857,7 @@ index 94250e5..0b7e433 100644
          agent: describeHookAgent(archivedRecord),
          archivedAt: archivedRecord.archivedAt,
        });
-@@ -2145,44 +2155,44 @@ export class AgentManager {
+@@ -2145,44 +2168,44 @@ export class AgentManager {
    private dispatchStoredAgentState(record: StoredAgentRecord): void {
      const updatedAt = new Date(record.updatedAt);
      const attention = extractAttention(record);
@@ -2914,7 +2940,7 @@ index 94250e5..0b7e433 100644
    }
  
    async setAgentMode(agentId: string, modeId: string): Promise<AgentProviderNotice | null> {
-@@ -2850,28 +2860,36 @@ export class AgentManager {
+@@ -2850,28 +2873,36 @@ export class AgentManager {
          { type: "turn_started", provider: agent.provider, turnId },
          { timestamp: turnStartedAt.toISOString() },
        );
@@ -2958,7 +2984,26 @@ index 94250e5..0b7e433 100644
            continue;
          }
          this.enqueueSessionEvent(agent.id, stagedEvent);
-@@ -3824,7 +3842,7 @@ export class AgentManager {
+@@ -3091,15 +3122,14 @@ export class AgentManager {
+ 
+     await this.beforeSteerUnavailableFallback?.({ agentId, expectedTurnId });
+     this.assertSteerAdmissionOwnsTurn(agent, expectedTurnId);
+-    return {
+-      status: "replaced",
+-      iterator: await this.replaceAdmittedForegroundTurn(
++    return new ReplacedActiveTurn(
++      await this.replaceAdmittedForegroundTurn(
+         agent,
+         expectedTurnId,
+         prompt,
+         stripSteerOptions(options),
+       ),
+-    };
++    );
+   }
+ 
+   private assertSteerAdmissionOwnsTurn(agent: ActiveManagedAgent, expectedTurnId: string): void {
+@@ -3824,7 +3854,7 @@ export class AgentManager {
        const now = new Date();
        const { durableTimelineHasRows } = await this.initializeAgentTimelineForRegister({
          agentId: resolvedAgentId,
@@ -2967,7 +3012,7 @@ index 94250e5..0b7e433 100644
          options,
        });
  
-@@ -3832,7 +3850,7 @@ export class AgentManager {
+@@ -3832,7 +3862,7 @@ export class AgentManager {
          resolvedAgentId,
          session,
          config,
@@ -2976,7 +3021,7 @@ index 94250e5..0b7e433 100644
          durableTimelineHasRows,
          options,
        });
-@@ -4095,8 +4113,8 @@ export class AgentManager {
+@@ -4095,8 +4125,8 @@ export class AgentManager {
  
    private emitClosedAgent(agent: ManagedAgentClosed, options?: { persist?: boolean }): void {
      this.emitState(agent, options);
@@ -2987,7 +3032,7 @@ index 94250e5..0b7e433 100644
          agent: describeHookAgent({ ...agent, title: agent.config.title }),
        });
      }
-@@ -4421,30 +4439,37 @@ export class AgentManager {
+@@ -4421,30 +4451,37 @@ export class AgentManager {
    private async primeTimelineFromLegacyProviderHistory(
      agent: ActiveManagedAgent,
      broadcast: boolean | (() => boolean),
@@ -3040,7 +3085,7 @@ index 94250e5..0b7e433 100644
        }
      } catch (error) {
        this.logger.warn({ err: error, agentId: agent.id }, "Failed to hydrate provider history");
-@@ -5598,7 +5623,7 @@ export class AgentManager {
+@@ -5598,7 +5635,7 @@ export class AgentManager {
          tools: [],
          mcpServers: {},
        };
@@ -9620,6 +9665,21 @@ index 1205554..f26b462 100644
    workspaceGitService: WorkspaceGitService;
    workspaceProvisioning: Pick<WorkspaceProvisioningService, "createWorkspaceForWorktree">;
  }
+diff --git a/packages/server/src/server/persisted-config.ts b/packages/server/src/server/persisted-config.ts
+index 3138ec9..d328024 100644
+--- a/packages/server/src/server/persisted-config.ts
++++ b/packages/server/src/server/persisted-config.ts
+@@ -661,7 +661,9 @@ export function editPersistedConfig(
+     object[part] ??= {};
+     object = object[part] as Record<string, unknown>;
+   }
+-  const key = parts.at(-1)!;
++  // Indexed, not at(-1): the native CLI compiles this module from its untyped dist JS, where
++  // scriptc has no native type for at()'s result (SC2011).
++  const key = parts[parts.length - 1];
+   if (field === "daemon") {
+     const previousAuth = config.daemon?.auth;
+     const nextAuth =
 diff --git a/packages/server/src/server/persistence-hooks.ts b/packages/server/src/server/persistence-hooks.ts
 index e95743d..e01e9ef 100644
 --- a/packages/server/src/server/persistence-hooks.ts

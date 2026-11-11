@@ -270,17 +270,23 @@ $(BUILD_DIR)/paseo-daemon-$(HOST_NAME): FORCE daemon-prep
 	cp $(OPENCODE_DIST)/v2/bridge-plugin.bundle.mjs $(OPENCODE_DIST)/v2/state.mjs $(BUILD_DIR)/opencode/v2/
 
 # One relocatable directory: the CLI as paseo, the daemon as paseo-daemon
-# (the native CLI starts the paseo-daemon beside it), and DAEMON_RUNTIME.
+# (the native CLI starts the paseo-daemon beside it), DAEMON_RUNTIME and
+# Paseo's LICENSE; then a tarball of it and its SHA-256 sum.
 # The two programs build at the same time: scriptc's frontend uses one core
 # per build, and each build has its own directory and LLVM helper.
+PASEO_VERSION := $(shell sed -n 's/^  "version": "\(.*\)",$$/\1/p' $(SRC)/package.json)
+DIST_NAME := paseo-$(PASEO_VERSION)-$(HOST_NAME)
 dist:
 	$(MAKE) -j2 $(HOST_NAME) daemon
-	rm -rf $(DIST_DIR)/paseo-$(HOST_NAME)
-	mkdir -p $(DIST_DIR)/paseo-$(HOST_NAME)
-	cp $(BUILD_DIR)/paseo-$(HOST_NAME) $(DIST_DIR)/paseo-$(HOST_NAME)/paseo
-	cp $(BUILD_DIR)/paseo-daemon-$(HOST_NAME) $(DIST_DIR)/paseo-$(HOST_NAME)/paseo-daemon
-	cp -r $(addprefix $(BUILD_DIR)/,$(DAEMON_RUNTIME)) $(DIST_DIR)/paseo-$(HOST_NAME)/
-	@echo "dist: $(DIST_DIR)/paseo-$(HOST_NAME)"
+	rm -rf $(DIST_DIR)/$(DIST_NAME) $(DIST_DIR)/$(DIST_NAME).tar.gz $(DIST_DIR)/$(DIST_NAME).tar.gz.sha256
+	mkdir -p $(DIST_DIR)/$(DIST_NAME)
+	cp $(BUILD_DIR)/paseo-$(HOST_NAME) $(DIST_DIR)/$(DIST_NAME)/paseo
+	cp $(BUILD_DIR)/paseo-daemon-$(HOST_NAME) $(DIST_DIR)/$(DIST_NAME)/paseo-daemon
+	cp -r $(addprefix $(BUILD_DIR)/,$(DAEMON_RUNTIME)) $(DIST_DIR)/$(DIST_NAME)/
+	cp $(SRC)/LICENSE $(DIST_DIR)/$(DIST_NAME)/
+	tar -C $(DIST_DIR) --owner=0 --group=0 --numeric-owner -czf $(DIST_DIR)/$(DIST_NAME).tar.gz $(DIST_NAME)
+	cd $(DIST_DIR) && sha256sum $(DIST_NAME).tar.gz > $(DIST_NAME).tar.gz.sha256
+	@echo "dist: $(DIST_DIR)/$(DIST_NAME).tar.gz"
 
 clean:
 	rm -f $(foreach row,$(TARGETS),$(BUILD_DIR)/$(word 4,$(call fields,$(row)))) $(BUILD_DIR)/paseo-daemon-$(HOST_NAME)
