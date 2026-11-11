@@ -13,31 +13,33 @@ work/paseo/     submodule: maci0/paseo branch turbopaseo, the patched tree where
 native/         stand-ins for packages that cannot run natively, and the native entries
 dist/           make dist: paseo-<version>-<host>/ and its .tar.gz (gitignored)
 builds/         native outputs (gitignored)
-scripts/tp      install, update and remove a dist build
+tp/             tp, the install manager, itself compiled with scriptc
 Makefile        host build and cross targets
 ```
 
 ## Install
 
-Needs the tools under [Build the host binary](#build-the-host-binary). `tp` builds Paseo from this checkout and installs it into `~/.local` (`TP_PREFIX` overrides that): the release in `opt/turbopaseo/paseo-<version>-<host>/`, symlinks at `bin/paseo` and `bin/tp`.
+No release is published yet, so the download below does not work until the first one is.
 
 ```
-git clone --recurse-submodules https://github.com/maci0/turbopaseo
-cd turbopaseo
-make OPTIMIZATION=dev paseo-deps dist   # release builds of the CLI fail right now (Status)
-scripts/tp install
+mkdir -p ~/.local/bin
+curl -fLo ~/.local/bin/tp https://github.com/maci0/turbopaseo/releases/latest/download/tp-linux-x64
+chmod +x ~/.local/bin/tp
+tp install
 paseo --version
 ```
 
+`tp` downloads from the latest [release](https://github.com/maci0/turbopaseo/releases) and checks every file against its `.sha256` asset. It installs into `~/.local` (`TP_PREFIX` overrides that): the release in `opt/turbopaseo/paseo-<version>-<host>/`, a symlink at `bin/paseo`.
+
 ```
-tp status        # installed release, link targets, checkout commit
-OPTIMIZATION=dev tp update   # git pull --ff-only and submodule update, then make paseo-deps dist and install
-tp self-update   # only the git part: updates tp itself, which links back into the checkout
-tp install dist/paseo-0.15.4-linux-x64.tar.gz
-tp remove        # deletes the release and both links; ~/.paseo stays
+tp status        # installed release and link target
+tp update        # install the latest release if it is not the installed one
+tp self-update   # replace tp with the latest release's tp-<host>
+tp install dist/paseo-0.15.4-linux-x64.tar.gz   # a local build
+tp remove        # delete the release and the paseo link; ~/.paseo and tp stay
 ```
 
-Tested: `tp install`, `status`, `remove` and `self-update` (in throwaway clones), and a package installed through the `bin/paseo` symlink running `daemon config set`, `daemon start`, `status`, `ls`, `provider ls` and `daemon stop` with the repo hidden. Not yet run from a fresh clone. `tp install` checks the tarball's `.sha256` and refuses to replace a `bin/paseo` or `bin/tp` that is not its own symlink, such as an npm-installed Paseo. A running daemon keeps the old binary until `paseo daemon restart`. The native daemon uses `~/.paseo` and port 6767 like Node Paseo, so stop a Node daemon first or pass `--home` to another directory.
+`tp` refuses to replace a `bin/paseo` that is not its own symlink, such as an npm-installed Paseo. A running daemon keeps the old binary until `paseo daemon restart`. The native daemon uses `~/.paseo` and port 6767 like Node Paseo, so stop a Node daemon first or pass `--home` to another directory. Tested against a local stand-in for the GitHub releases API (download through a redirect, checksum mismatch, install, update, self-update, remove); a package installed this way runs `daemon config set`, `daemon start`, `status`, `ls`, `provider ls` and `daemon stop` with the repo hidden.
 
 ## Build the host binary
 
@@ -49,7 +51,7 @@ make paseo-check   # the patched tree still typechecks, builds and runs under No
 make
 ```
 
-`make` writes `builds/paseo-<host>`, for example `builds/paseo-linux-x64` on x86-64 Linux. `NODE_ISLANDS=off` is the default, so a package that scriptc cannot lower fails the build.
+`make` writes `builds/paseo-<host>`, for example `builds/paseo-linux-x64` on x86-64 Linux. `make dist` builds the CLI, the daemon and `tp`, and writes the release files: `dist/paseo-<version>-<host>.tar.gz` and `dist/tp-<host>`, each with a `.sha256`. `NODE_ISLANDS=off` is the default, so a package that scriptc cannot lower fails the build.
 
 ```
 make list            # linux and darwin, x86_64 and aarch64

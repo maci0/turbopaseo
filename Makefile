@@ -92,7 +92,7 @@ TARGETS := \
 fields = $(subst |, ,$(1))
 TARGET_NAMES := $(foreach row,$(TARGETS),$(word 1,$(call fields,$(row))))
 
-.PHONY: help host all daemon daemon-prep dist $(TARGET_NAMES) FORCE work source-patches source-patch patches paseo-build paseo-deps paseo-check clean distclean list
+.PHONY: help host all daemon daemon-prep tp dist$(TARGET_NAMES) FORCE work source-patches source-patch patches paseo-build paseo-deps paseo-check clean distclean list
 
 host: $(HOST_NAME)
 
@@ -105,7 +105,8 @@ help:
 	@echo "make all              every executable target"
 	@echo "make <name>           one target (make list)"
 	@echo "make daemon           host daemon ($(BUILD_DIR)/paseo-daemon-$(HOST_NAME), with lib/ and assets/ beside it)"
-	@echo "make dist             host CLI and daemon with their runtime files in $(DIST_DIR)/paseo-$(HOST_NAME)"
+	@echo "make tp               install manager ($(BUILD_DIR)/tp-$(HOST_NAME))"
+	@echo "make dist             $(DIST_DIR)/$(DIST_NAME).tar.gz and tp-$(HOST_NAME), each with a .sha256"
 	@echo "make work             export the paseo submodule into $(PASEO)"
 	@echo "make source-patches   apply $(PATCH_DIR)/paseo onto $(PASEO)"
 	@echo "make patches          apply $(PATCH_DIR) onto $(PASEO)/node_modules"
@@ -241,6 +242,16 @@ daemon-prep: paseo-build
 
 daemon: $(BUILD_DIR)/paseo-daemon-$(HOST_NAME)
 
+# tp, the install manager (tp/index.ts): one file, no runtime files beside it.
+tp: $(BUILD_DIR)/tp-$(HOST_NAME)
+
+$(BUILD_DIR)/tp-$(HOST_NAME): FORCE
+	cd $(ROOT)/tp && $(SCRIPTC) build index.ts \
+	    -o $@ \
+	    --optimization $(OPTIMIZATION) \
+	    --no-keep-llvm \
+	    --node-islands=$(NODE_ISLANDS)
+
 # A native daemon reads its runtime files from its own directory, never from
 # the build tree (import.meta.url is a build-machine path in a native binary):
 #   icudt78l.dat     ICU data, written by scriptc beside the binary
@@ -277,8 +288,10 @@ $(BUILD_DIR)/paseo-daemon-$(HOST_NAME): FORCE daemon-prep
 PASEO_VERSION := $(shell sed -n 's/^  "version": "\(.*\)",$$/\1/p' $(SRC)/package.json)
 DIST_NAME := paseo-$(PASEO_VERSION)-$(HOST_NAME)
 dist:
-	$(MAKE) -j2 $(HOST_NAME) daemon
+	$(MAKE) -j3 $(HOST_NAME) daemon tp
 	rm -rf $(DIST_DIR)/$(DIST_NAME) $(DIST_DIR)/$(DIST_NAME).tar.gz $(DIST_DIR)/$(DIST_NAME).tar.gz.sha256
+	cp $(BUILD_DIR)/tp-$(HOST_NAME) $(DIST_DIR)/
+	cd $(DIST_DIR) && sha256sum tp-$(HOST_NAME) > tp-$(HOST_NAME).sha256
 	mkdir -p $(DIST_DIR)/$(DIST_NAME)
 	cp $(BUILD_DIR)/paseo-$(HOST_NAME) $(DIST_DIR)/$(DIST_NAME)/paseo
 	cp $(BUILD_DIR)/paseo-daemon-$(HOST_NAME) $(DIST_DIR)/$(DIST_NAME)/paseo-daemon

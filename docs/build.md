@@ -55,7 +55,7 @@ The frontend (parsing, type checking, lowering, LLVM IR generation) runs on one 
 
 ## dist
 
-`make dist` builds the host CLI and the daemon (both rebuilt every time, at `OPTIMIZATION`, `release` by default, at the same time), gathers them into `dist/paseo-<version>-<host>/`, and packs that directory as `dist/paseo-<version>-<host>.tar.gz` with its SHA-256 sum in `.tar.gz.sha256`. `<version>` is the `paseo/` submodule's version (`0.15.4`).
+`make dist` builds the host CLI and the daemon (both rebuilt every time, at `OPTIMIZATION`, `release` by default, at the same time), gathers them into `dist/paseo-<version>-<host>/`, and packs that directory as `dist/paseo-<version>-<host>.tar.gz` with its SHA-256 sum in `.tar.gz.sha256`. It also builds `tp` (`tp/index.ts`, `make tp`) and copies it to `dist/tp-<host>` with `tp-<host>.sha256`. Those four files are the assets of a GitHub release, which `tp install`, `update` and `self-update` download. `<version>` is the `paseo/` submodule's version (`0.15.4`).
 
 | Path | What |
 | --- | --- |
