@@ -33,7 +33,7 @@ Filed on 2026-11-12 at https://github.com/vercel-labs/scriptc.
 | Issue | Evidence | Workaround here |
 | --- | --- | --- |
 | [#3583](https://github.com/vercel-labs/scriptc/issues/3583): a class method whose result is a union holding an `AsyncGenerator` is missing from the run-time prototype, and in a large class so is every method after it. | Repro in `.scratch/scriptc-bugs/prototype-generator-union/`: `manager.steer is not a function` on 0.4.10 and 0.4.11, Node runs it. | `ReplacedActiveTurn` class in `agent-manager.ts` ([patches](patches.md)). |
-| [#3584](https://github.com/vercel-labs/scriptc/issues/3584): `--optimization release` fails on the CLI with an internal `SC3004` at `index.ts:1:1`, after `llvm-emit-analyses`; dev builds of the same source pass. | 0.4.10 and 0.4.11, with and without the build cache. No small repro: the issue gives the `make` commands on this repo. | None yet: release builds of the CLI fail. |
+| [#3584](https://github.com/vercel-labs/scriptc/issues/3584): `--optimization release` fails on the CLI with an internal `SC3004` at `index.ts:1:1`, after `llvm-emit-analyses`; dev builds of the same source pass. | 0.4.10 and 0.4.11. Cause found by cutting the CLI down: a method in package JS that returns a loop-accumulated number on one path and `return this.fail(...)` (a method that only throws) on the other. 20-line repro posted to the issue; it is in `.scratch/scriptc-bugs/release-return-fail/min/m9.js`. | `throw this.codecError(...)` in `terminal-worker-v8-codec.ts` ([patches](patches.md)). |
 
 ## Findings in Paseo
 
