@@ -54,7 +54,7 @@ Every command costs the same 6.1 G instructions, so the time is start-up, not th
 | scriptc dev, peak RSS | 152 MB | 90 MB (-41%) |
 | Node 26, CPU / instructions | 210 ms / 1.64 G | 181 ms / 1.41 G, measured with the parse-family and string change only |
 
-A release build loads the protocol schemas in fewer instructions than Node. The full release CLI has not been measured: its build needs more than 60 GB in the LLVM step ([build](build.md)), and a dev rebuild of the CLI without cache was killed at a 40 GB cap.
+A release build loads the protocol schemas in fewer instructions than Node.
 
 ## The zod change
 
@@ -62,8 +62,37 @@ A release build loads the protocol schemas in fewer instructions than Node. The 
 
 `.scratch/zod-check/index.ts` covers these: 19 checks pass under Node; natively the 17 that do not export JSON Schema pass. Paseo's `messages.attachments.test.ts` (12 tests) and `agent-response-loop.test.ts` (11 tests) pass under Node with the patch.
 
+## The daemon client loads on first connection
+
+The CLI imported `@getpaseo/client` statically, and the client imports the protocol's `messages.js`, so every command built the message schemas. `packages/cli/src/utils/daemon-client-runtime.ts` now re-exports the client values the CLI uses (`createHostClient`, `DaemonConnectionError`, `requireTerminalKeepCapability`, `createPaseoApi`), and the five call sites load it with `await import()` once they have a connection. `PluginIdSchema` and `parseHostTarget` come from `@getpaseo/protocol/plugin-config` and `host-target`, which do not reach `messages.js`. `.scratch/reach.ts` walks the runtime imports of the built JS: before the change `packages/cli/dist/index.js` reached `messages.js` through `commands/daemon/status.js` and `@getpaseo/client`; after it, it does not.
+
+scriptc compiles a dynamic `import()` of a local module and runs that module's initialisers only when the import runs: a release probe that skips the import costs 0.3 M instructions, one that takes it 1.39 G. A dynamic `import()` of a package specifier fails to compile (`SC2013`), so the indirection has to be a local file.
+
+## Dev build against Node, with both changes
+
+Measured on 2026-11-13 with load average 20 to 50 from other builds, so CPU times are inflated on both sides and instruction counts are the comparison. Native is the dev CLI built from `dbe292b` (`builds/paseo-linux-x64` at the time, saved as `.scratch/paseo-dev-lazy`) inside the same dev package, so the daemon is still the old one; `NATIVE_CLI=<binary> .scratch/bench.sh native` swaps it in.
+
+| Command | Native dev before | Native dev after | Node before | Node after |
+| --- | --- | --- | --- | --- |
+| `--version` | 6.08 G, 784 ms, 300 MB | 1.02 G, 291 ms, 166 MB | 3.50 G, 648 ms, 194 MB | 1.33 G, 200 ms, 89 MB |
+| `--help` | 6.10 G, 694 ms, 303 MB | 1.02 G, 307 ms, 167 MB | 3.52 G, 576 ms, 195 MB | 1.34 G, 219 ms, 89 MB |
+| `daemon status`, daemon down | 6.10 G, 686 ms, 307 MB | 1.04 G, 289 ms, 171 MB | 3.52 G, 640 ms, 196 MB | 1.37 G, 218 ms, 89 MB |
+| `daemon status`, daemon up | 6.15 G, 698 ms, 319 MB | 5.27 G | 3.69 G, 524 ms, 195 MB | 3.34 G, 597 ms, 175 MB |
+| `ls` | 6.13 G, 780 ms, 316 MB | 5.23 G | 3.65 G, 622 ms, 197 MB | 3.34 G, 589 ms, 174 MB |
+
+Each cell is instructions, CPU, peak RSS. A command that never connects runs in a sixth of the instructions natively and fewer than Node's. A command that connects still loads the client and the schemas, so it gains only the zod change (14%). The native CPU of the connected commands (about 1.6 s) was measured at load average 50 and is left out.
+
+The dev CLI built in 8 min under a 48 GB cap (`make OPTIMIZATION=dev`, no cache for the changed partitions); a 40 GB cap was too small.
+
+Output against the Node CLI, both from the same fake home (`.scratch/cmp-iso.sh`, `env -i`, config pointing at an unused port or at an isolated Node daemon on 127.0.0.1:47298, host `~/.paseo` checked): 44 of 44 commands without a daemon identical in stdout, stderr and exit code (`--version`, `--help`, 34 command help screens, an unknown command, `ls`, `ls --json`, `daemon status`, `provider ls`, `workspace ls`, `terminal ls`, `daemon config get`). Against the daemon, 16 of 17 identical; `provider ls` differs only on the first call after `daemon start`, where the native CLI, which runs first, sees providers `loading` and Node a moment later `unavailable`; a second call matches.
+
+## The idle daemon
+
+`.scratch/idle-prof.sh` records the dev package's daemon for 20 s after it has settled (376 samples at 999 Hz, about 0.38 s CPU, matching the 230 ms per 10 s above). 56% is scheduled cycle-collector passes (`scr_cyc_collect_scheduled` from `scr_loop_run_pass`) that re-trace long-lived objects: the voice WebSocket server (11.5% inclusive), the config store, plugin runtime, output capture and session socket (about 6% each). Program code is 1.1%. A repro with a long-lived cyclic graph of typed class instances and a 100 ms timer that makes and drops a closure over it (`.scratch/scriptc-bugs/idle-cycle-scan/`) does not show it: 0 to 2 ms CPU over 3 s with up to 1 M objects natively (Node: 572 ms at 1 M). The daemon's traced values are dynamic objects, closures and boxes (`scr_dyn_trace_v`, `scr_closure_trace`, `scr_box_trace`), so the trigger is in untyped JS; it is not found yet.
+
 ## Not done
 
-- Lazy loading of the protocol schemas in the CLI: the change is in Paseo's source and all of it is reached from `packages/cli/src/index.ts` at start-up.
-- The native daemon's idle CPU (230 ms per 10 s against Node's 50 ms) is not profiled.
+- The release CLI and daemon are not measured; the release build needs more than 60 GB ([build](build.md)).
 - No release-build profile: the release binary has no symbols, so its samples cannot be attributed.
+- A command that connects to the daemon still builds all protocol schemas; making them lazy is a change inside `@getpaseo/protocol`.
+- The idle daemon's cycle-collector trigger.

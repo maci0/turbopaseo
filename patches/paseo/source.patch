@@ -165,6 +165,51 @@ index 5391957..7a86346 100644
        env: process.env,
        mode: options.foreground ? "deployment" : "managed",
        foreground: options.foreground,
+diff --git a/packages/cli/src/commands/daemon/status.ts b/packages/cli/src/commands/daemon/status.ts
+index cd499ea..810ad4c 100644
+--- a/packages/cli/src/commands/daemon/status.ts
++++ b/packages/cli/src/commands/daemon/status.ts
+@@ -1,5 +1,4 @@
+ import { Command } from "commander";
+-import { DaemonConnectionError } from "@getpaseo/client/internal/daemon-client";
+ import {
+   readDaemonInstance,
+   daemonLogPath,
+@@ -68,6 +67,7 @@ async function probeDaemonStatus(
+     note = failure.message;
+   }
+   if (!client) return { connectedDaemon, note };
++  const { DaemonConnectionError } = await import("../../utils/daemon-client-runtime.js");
+   try {
+     let requestError: unknown;
+     const status = await client.getDaemonStatus({ timeout: 1_500 }).catch((error: unknown) => {
+diff --git a/packages/cli/src/commands/daemon/stop.ts b/packages/cli/src/commands/daemon/stop.ts
+index 141d509..c9cad75 100644
+--- a/packages/cli/src/commands/daemon/stop.ts
++++ b/packages/cli/src/commands/daemon/stop.ts
+@@ -1,8 +1,5 @@
+ import { Command } from "commander";
+-import {
+-  requireTerminalKeepCapability,
+-  type DaemonClient,
+-} from "@getpaseo/client/internal/daemon-client";
++import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
+ import { stopDaemonInstance, type DaemonInstance } from "@getpaseo/server/daemon-control";
+ import { connectToDaemon, type ConnectOptions } from "../../utils/client.js";
+ import { withOutput, type CommandOptions } from "../../output/index.js";
+@@ -49,7 +46,11 @@ async function runStop(options: CommandOptions, deps: StopCommandDeps) {
+     try {
+       // Checked on the connection that carries the shutdown: a daemon without the capability
+       // would close the terminals it was asked to keep.
+-      if (keepTerminals) requireTerminalKeepCapability(client, describeDaemonTarget(target));
++      if (keepTerminals) {
++        const { requireTerminalKeepCapability } =
++          await import("../../utils/daemon-client-runtime.js");
++        requireTerminalKeepCapability(client, describeDaemonTarget(target));
++      }
+       await client.shutdownServer({ timeout: remaining(), keepTerminals });
+     } finally {
+       await client.close();
 diff --git a/packages/cli/src/commands/hooks.ts b/packages/cli/src/commands/hooks.ts
 index ceb5b44..d1c1c4f 100644
 --- a/packages/cli/src/commands/hooks.ts
@@ -584,6 +629,18 @@ index b5541e7..c398ad1 100644
        return runHubProjects(options, dependencies);
      }),
    );
+diff --git a/packages/cli/src/commands/plugin/scaffold.ts b/packages/cli/src/commands/plugin/scaffold.ts
+index 25e010a..6bf9ebc 100644
+--- a/packages/cli/src/commands/plugin/scaffold.ts
++++ b/packages/cli/src/commands/plugin/scaffold.ts
+@@ -1,6 +1,6 @@
+ import { mkdir, readdir, writeFile } from "node:fs/promises";
+ import path from "node:path";
+-import { PluginIdSchema } from "@getpaseo/protocol/messages";
++import { PluginIdSchema } from "@getpaseo/protocol/plugin-config";
+ import { resolveCliVersion } from "../../version.js";
+ 
+ const OVERVIEW = `<!--
 diff --git a/packages/cli/src/commands/terminal/create.ts b/packages/cli/src/commands/terminal/create.ts
 index be41d87..dfafed2 100644
 --- a/packages/cli/src/commands/terminal/create.ts
@@ -605,6 +662,24 @@ index be41d87..dfafed2 100644
      const terminal = await client.terminals.create({
        workspaceId,
        cwd,
+diff --git a/packages/cli/src/commands/terminal/shared.ts b/packages/cli/src/commands/terminal/shared.ts
+index 0fcb9ef..879eab2 100644
+--- a/packages/cli/src/commands/terminal/shared.ts
++++ b/packages/cli/src/commands/terminal/shared.ts
+@@ -1,5 +1,4 @@
+ import type { DaemonTarget } from "../../utils/daemon-target.js";
+-import { createPaseoApi } from "@getpaseo/client";
+ import { connectToDaemon, getDaemonHost } from "../../utils/client.js";
+ import type { CommandError, CommandOptions } from "../../output/index.js";
+ 
+@@ -16,6 +15,7 @@ export async function connectTerminalClient(target: DaemonTarget) {
+   const daemonHost = getDaemonHost({ target });
+   try {
+     const client = await connectToDaemon({ target });
++    const { createPaseoApi } = await import("../../utils/daemon-client-runtime.js");
+     return { client: createPaseoApi(client), daemonHost, close: () => client.close() };
+   } catch (err) {
+     if (err && typeof err === "object" && "code" in err) throw err;
 diff --git a/packages/cli/src/output/render.ts b/packages/cli/src/output/render.ts
 index d21e533..be7fdac 100644
 --- a/packages/cli/src/output/render.ts
@@ -699,6 +774,51 @@ index ac67e80..413b0fe 100644
    }
  
    const parseArgv = createCliParseArgv({
+diff --git a/packages/cli/src/utils/caller-agent.ts b/packages/cli/src/utils/caller-agent.ts
+index 3bc2ee6..0b2ce29 100644
+--- a/packages/cli/src/utils/caller-agent.ts
++++ b/packages/cli/src/utils/caller-agent.ts
+@@ -1,5 +1,3 @@
+-import { DaemonConnectionError } from "@getpaseo/client/internal/daemon-client";
+-
+ interface CallerLookupClient {
+   fetchAgent(options: { agentId: string }): Promise<{ agent: { id: string } } | null>;
+ }
+@@ -12,6 +10,7 @@ export async function resolveCallerAgentId(
+ ): Promise<string | undefined> {
+   const agentId = env.PASEO_AGENT_ID?.trim();
+   if (!agentId) return undefined;
++  const { DaemonConnectionError } = await import("./daemon-client-runtime.js");
+   const caller = await client.fetchAgent({ agentId }).catch((error: unknown) => {
+     // A missing agent is a daemon answer; a lost or timed-out connection is not.
+     if (error instanceof DaemonConnectionError) throw error;
+diff --git a/packages/cli/src/utils/client.ts b/packages/cli/src/utils/client.ts
+index 27d1a4d..72aeb26 100644
+--- a/packages/cli/src/utils/client.ts
++++ b/packages/cli/src/utils/client.ts
+@@ -1,4 +1,4 @@
+-import { createHostClient, parseHostTarget } from "@getpaseo/client/node";
++import { parseHostTarget } from "@getpaseo/protocol/host-target";
+ import {
+   waitForDaemonReady,
+   resolvePaseoHome,
+@@ -12,7 +12,7 @@ import {
+   normalizeHostPort,
+   parseConnectionUri,
+ } from "@getpaseo/protocol/daemon-endpoints";
+-import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
++import type { DaemonClient } from "@getpaseo/client/internal/daemon-client";
+ import { getOrCreateCliClientId } from "./client-id.js";
+ import { resolveCliVersion } from "../version.js";
+ 
+@@ -191,6 +191,7 @@ async function connectSelectedDaemon(options: ConnectOptions): Promise<DaemonCli
+         ).listen;
+   const home = resolveClientPaseoHome(options.target);
+   const credential = resolveDaemonCredential(host, home);
++  const { createHostClient } = await import("./daemon-client-runtime.js");
+   const client = createHostClient(host, {
+     clientId: await getOrCreateCliClientId(home),
+     clientType: "cli",
 diff --git a/packages/cli/src/utils/command-options.ts b/packages/cli/src/utils/command-options.ts
 index 2274785..7c11a70 100644
 --- a/packages/cli/src/utils/command-options.ts
@@ -769,6 +889,21 @@ index 2274785..7c11a70 100644
 +    return handler(options, b, c, d);
    };
  }
+diff --git a/packages/cli/src/utils/daemon-client-runtime.ts b/packages/cli/src/utils/daemon-client-runtime.ts
+new file mode 100644
+index 0000000..5bf81f2
+--- /dev/null
++++ b/packages/cli/src/utils/daemon-client-runtime.ts
+@@ -0,0 +1,9 @@
++// The client values the CLI needs at run time. `@getpaseo/client` loads the protocol's message
++// schemas when it is imported, so CLI modules load this file with `await import()` where they
++// connect to a daemon, and commands that never connect (help, version, config) skip that cost.
++export { createHostClient } from "@getpaseo/client/node";
++export {
++  DaemonConnectionError,
++  requireTerminalKeepCapability,
++} from "@getpaseo/client/internal/daemon-client";
++export { createPaseoApi } from "@getpaseo/client";
 diff --git a/packages/cli/src/utils/daemon-target.ts b/packages/cli/src/utils/daemon-target.ts
 index 0caba4e..80f842f 100644
 --- a/packages/cli/src/utils/daemon-target.ts

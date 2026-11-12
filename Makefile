@@ -92,7 +92,7 @@ TARGETS := \
 fields = $(subst |, ,$(1))
 TARGET_NAMES := $(foreach row,$(TARGETS),$(word 1,$(call fields,$(row))))
 
-.PHONY: help host all daemon daemon-prep tp dist$(TARGET_NAMES) FORCE work source-patches source-patch patches paseo-build paseo-deps paseo-check clean distclean list
+.PHONY: help host all daemon daemon-prep tp dist $(TARGET_NAMES) FORCE work source-patches source-patch patches paseo-build paseo-deps paseo-check clean distclean list
 
 host: $(HOST_NAME)
 
