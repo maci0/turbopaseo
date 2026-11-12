@@ -283,12 +283,12 @@ $(BUILD_DIR)/paseo-daemon-$(HOST_NAME): FORCE daemon-prep
 # One relocatable directory: the CLI as paseo, the daemon as paseo-daemon
 # (the native CLI starts the paseo-daemon beside it), DAEMON_RUNTIME and
 # Paseo's LICENSE; then a tarball of it and its SHA-256 sum.
-# The two programs build at the same time: scriptc's frontend uses one core
-# per build, and each build has its own directory and LLVM helper.
+# The programs build one after another: a release build of the CLI alone
+# peaks above 60 GB in its LLVM step.
 PASEO_VERSION := $(shell sed -n 's/^  "version": "\(.*\)",$$/\1/p' $(SRC)/package.json)
 DIST_NAME := paseo-$(PASEO_VERSION)-$(HOST_NAME)
 dist:
-	$(MAKE) -j3 $(HOST_NAME) daemon tp
+	$(MAKE) $(HOST_NAME) daemon tp
 	rm -rf $(DIST_DIR)/$(DIST_NAME) $(DIST_DIR)/$(DIST_NAME).tar.gz $(DIST_DIR)/$(DIST_NAME).tar.gz.sha256
 	cp $(BUILD_DIR)/tp-$(HOST_NAME) $(DIST_DIR)/
 	cd $(DIST_DIR) && sha256sum tp-$(HOST_NAME) > tp-$(HOST_NAME).sha256

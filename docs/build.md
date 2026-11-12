@@ -49,13 +49,13 @@ To check only whether scriptc's frontend accepts a program, without LLVM:
 scriptc build file.ts --emit=ir -o out.ir --node-islands=off
 ```
 
-The frontend (parsing, type checking, lowering, LLVM IR generation) runs on one thread, and scriptc has no setting to change that; it is skipped only when no input changed. Code generation is already parallel: the LLVM helper compiles the executable in partitions, one thread per hardware thread, and caches each partition, so a rebuild recompiles only the partitions whose functions changed. Separate programs can build side by side, which is why `make dist` builds the CLI and the daemon at the same time.
+The frontend (parsing, type checking, lowering, LLVM IR generation) runs on one thread, and scriptc has no setting to change that; it is skipped only when no input changed. Code generation is already parallel: the LLVM helper compiles the executable in partitions, one thread per hardware thread, and caches each partition, so a rebuild recompiles only the partitions whose functions changed. `make dist` builds the CLI, the daemon and `tp` one after another: a release build of the CLI peaked above 60 GB in the LLVM helper (killed at a 60 GB cap on 32 and on 8 CPUs, and at 32 GB), so two at once do not fit next to other work on a 123 GB machine.
 
 `make daemon` builds `builds/paseo-daemon-<host>` from `native/entries/daemon/index.ts`. `packages/server/scripts/supervisor-entrypoint.ts` forks `packages/server/src/server/daemon-worker.ts`; scriptc supports `fork()` with an IPC channel when the worker path is a static `new URL(..., import.meta.url)`, and embeds the worker in the same binary.
 
 ## dist
 
-`make dist` builds the host CLI and the daemon (both rebuilt every time, at `OPTIMIZATION`, `release` by default, at the same time), gathers them into `dist/paseo-<version>-<host>/`, and packs that directory as `dist/paseo-<version>-<host>.tar.gz` with its SHA-256 sum in `.tar.gz.sha256`. It also builds `tp` (`tp/index.ts`, `make tp`) and copies it to `dist/tp-<host>` with `tp-<host>.sha256`. Those four files are the assets of a GitHub release, which `tp install`, `update` and `self-update` download. `<version>` is the `paseo/` submodule's version (`0.15.4`).
+`make dist` builds the host CLI and the daemon (both rebuilt every time, at `OPTIMIZATION`, `release` by default, one after the other), gathers them into `dist/paseo-<version>-<host>/`, and packs that directory as `dist/paseo-<version>-<host>.tar.gz` with its SHA-256 sum in `.tar.gz.sha256`. It also builds `tp` (`tp/index.ts`, `make tp`) and copies it to `dist/tp-<host>` with `tp-<host>.sha256`. Those four files are the assets of a GitHub release, which `tp install`, `update` and `self-update` download. `<version>` is the `paseo/` submodule's version (`0.15.4`).
 
 | Path | What |
 | --- | --- |
