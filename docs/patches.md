@@ -66,6 +66,7 @@ Node and the native binary both accept the datetime string `2020-01-01T00:00:00Z
 - `packages/client/src/timeline-subscription/index.ts`: `subscriptionId` is a getter in the object literal instead of `Object.defineProperty`.
 - `packages/protocol/src/chunked-transport.ts`: JSDoc `@type` and `@returns` on the write queue, so the emitted JS keeps a type for `completion`.
 - `packages/server/src/server/persisted-config.ts`: `editPersistedConfig` reads the last path part as `parts[parts.length - 1]`. The CLI compiles the server from `dist` JS, and there scriptc has no native type for the result of `parts.at(-1)` (`SC2011` at run time), so `paseo daemon config set` and `unset` failed.
+- `packages/server/src/terminal/terminal-worker-v8-codec.ts`: the three value-returning paths that ended in `return this.fail(...)` end in `throw this.codecError(...)`. The CLI compiles this module from its dist JS (it reaches it through `daemon restart` and `daemon stop`), where `fail` has no `never` type, and a release build stopped with an internal `SC3004` at `index.ts:1:1` ([scriptc#3584](https://github.com/vercel-labs/scriptc/issues/3584)); dev builds were not affected.
 - `packages/cli/src/commands/hub/*.ts`: the action handlers take `options: HubXOptions` with no `= {} as HubXOptions` default (Commander always passes the options object). scriptc 0.4.11 rejects an object literal asserted to a type whose required properties it leaves unwritten (`SC3001`, `partialRecordAssertion:cyclic`); the options types require `daemonTarget`.
 
 ## which
