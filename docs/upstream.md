@@ -26,6 +26,15 @@ Changes and findings from this work that are worth sending upstream on their own
 | qrcode 1.5.4 | `lib/core/segments.js` measures UTF-8 length with `unescape(encodeURIComponent(s)).length`. `unescape` is deprecated (Annex B). | Published tarball. | `Buffer.byteLength(s)` or a manual count. In `patches/qrcode+1.5.4.patch`. |
 | sherpa-onnx-node 1.12.28 | The addon's classes have no `free` method, and the Kokoro config field `dictDir` is dropped without an error. | Reported by the sherpa investigation from the addon sources in `.scratch/sherpa/upstream/`; not re-verified here. | Report to sherpa-onnx. |
 
+## Bugs in scriptc
+
+Filed on 2026-11-12 at https://github.com/vercel-labs/scriptc.
+
+| Issue | Evidence | Workaround here |
+| --- | --- | --- |
+| [#3583](https://github.com/vercel-labs/scriptc/issues/3583): a class method whose result is a union holding an `AsyncGenerator` is missing from the run-time prototype, and in a large class so is every method after it. | Repro in `.scratch/scriptc-bugs/prototype-generator-union/`: `manager.steer is not a function` on 0.4.10 and 0.4.11, Node runs it. | `ReplacedActiveTurn` class in `agent-manager.ts` ([patches](patches.md)). |
+| [#3584](https://github.com/vercel-labs/scriptc/issues/3584): `--optimization release` fails on the CLI with an internal `SC3004` at `index.ts:1:1`, after `llvm-emit-analyses`; dev builds of the same source pass. | 0.4.10 and 0.4.11, with and without the build cache. No small repro: the issue gives the `make` commands on this repo. | None yet: release builds of the CLI fail. |
+
 ## Findings in Paseo
 
 | Area | Issue | Evidence | Status |
