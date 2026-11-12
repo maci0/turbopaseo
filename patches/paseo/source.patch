@@ -178,7 +178,7 @@ index ceb5b44..d1c1c4f 100644
      }
      if (next.done) return chunks.join("");
 diff --git a/packages/cli/src/commands/hub/connect.ts b/packages/cli/src/commands/hub/connect.ts
-index 90a4edc..9fbce8b 100644
+index 90a4edc..e2f440c 100644
 --- a/packages/cli/src/commands/hub/connect.ts
 +++ b/packages/cli/src/commands/hub/connect.ts
 @@ -68,9 +68,7 @@ export function addHubConnectCommand(parent: Command, dependencies: HubConnectDe
@@ -188,7 +188,7 @@ index 90a4edc..9fbce8b 100644
 -    withOutput(async (...args) => {
 -      const origin = args[0] as string | undefined;
 -      const options = args.at(-2) as HubConnectOptions;
-+    withOutput(async (origin?: string, options: HubConnectOptions = {} as HubConnectOptions) => {
++    withOutput(async (origin: string | undefined, options: HubConnectOptions) => {
        return runHubConnect(origin, options, dependencies);
      }),
    );
@@ -220,7 +220,7 @@ index e55abb5..2006853 100644
      return await lstat(target);
    } catch (error) {
 diff --git a/packages/cli/src/commands/hub/deploy.ts b/packages/cli/src/commands/hub/deploy.ts
-index b9cde59..c0afadc 100644
+index b9cde59..b539a7e 100644
 --- a/packages/cli/src/commands/hub/deploy.ts
 +++ b/packages/cli/src/commands/hub/deploy.ts
 @@ -225,21 +225,35 @@ export async function runHubDeployBundle(
@@ -276,7 +276,7 @@ index b9cde59..c0afadc 100644
 -    >(async (...args) => {
 -      const options = args.at(-2) as HubDeployOptions;
 -      return runHubDeploy(options, {
-+    withOutput(async (options: HubDeployOptions = {} as HubDeployOptions) => {
++    withOutput(async (options: HubDeployOptions) => {
 +      const environment = {
          cwd: dependencies.cwd(),
          env: dependencies.env,
@@ -290,7 +290,7 @@ index b9cde59..c0afadc 100644
    );
  }
 diff --git a/packages/cli/src/commands/hub/disconnect.ts b/packages/cli/src/commands/hub/disconnect.ts
-index a7052d4..53355a2 100644
+index a7052d4..5e199f1 100644
 --- a/packages/cli/src/commands/hub/disconnect.ts
 +++ b/packages/cli/src/commands/hub/disconnect.ts
 @@ -45,8 +45,7 @@ export function addHubDisconnectCommand(
@@ -299,12 +299,12 @@ index a7052d4..53355a2 100644
    ).action(
 -    withOutput(async (...args) => {
 -      const options = args.at(-2) as HubDisconnectOptions;
-+    withOutput(async (options: HubDisconnectOptions = {} as HubDisconnectOptions) => {
++    withOutput(async (options: HubDisconnectOptions) => {
        return runHubDisconnect(options, dependencies);
      }),
    );
 diff --git a/packages/cli/src/commands/hub/export.ts b/packages/cli/src/commands/hub/export.ts
-index 7311c0a..9f697a1 100644
+index 7311c0a..6c47335 100644
 --- a/packages/cli/src/commands/hub/export.ts
 +++ b/packages/cli/src/commands/hub/export.ts
 @@ -1,4 +1,4 @@
@@ -339,7 +339,7 @@ index 7311c0a..9f697a1 100644
 -    withOutput(async (...args) => {
 -      const directory = args[0] as string | undefined;
 -      const options = args.at(-2) as HubExportOptions;
-+    withOutput(async (directory?: string, options: HubExportOptions = {} as HubExportOptions) => {
++    withOutput(async (directory: string | undefined, options: HubExportOptions) => {
        return runHubExport(directory, options, dependencies);
      }),
    );
@@ -532,7 +532,7 @@ index 056561d..9b126b5 100644
      }),
    );
 diff --git a/packages/cli/src/commands/hub/logout.ts b/packages/cli/src/commands/hub/logout.ts
-index 8fd6f2b..f024c3a 100644
+index 8fd6f2b..6f9994f 100644
 --- a/packages/cli/src/commands/hub/logout.ts
 +++ b/packages/cli/src/commands/hub/logout.ts
 @@ -97,8 +97,7 @@ export function addHubLogoutCommand(parent: Command, dependencies: HubLogoutDepe
@@ -541,12 +541,12 @@ index 8fd6f2b..f024c3a 100644
    ).action(
 -    withOutput(async (...args) => {
 -      const options = args.at(-2) as HubLogoutOptions;
-+    withOutput(async (options: HubLogoutOptions = {} as HubLogoutOptions) => {
++    withOutput(async (options: HubLogoutOptions) => {
        return runHubLogout(options, dependencies);
      }),
    );
 diff --git a/packages/cli/src/commands/hub/permissions.ts b/packages/cli/src/commands/hub/permissions.ts
-index 86f0b4c..b7d62be 100644
+index 86f0b4c..1dd41d0 100644
 --- a/packages/cli/src/commands/hub/permissions.ts
 +++ b/packages/cli/src/commands/hub/permissions.ts
 @@ -80,8 +80,7 @@ export function addHubPermissionsCommand(
@@ -555,7 +555,7 @@ index 86f0b4c..b7d62be 100644
    addJsonAndDaemonHostOptions(permissions.command("list")).action(
 -    withOutput(async (...args) => {
 -      const options = args.at(-2) as HubPermissionsOptions;
-+    withOutput(async (options: HubPermissionsOptions = {} as HubPermissionsOptions) => {
++    withOutput(async (options: HubPermissionsOptions) => {
        return runHubPermissionsList(options, dependencies);
      }),
    );
@@ -566,12 +566,12 @@ index 86f0b4c..b7d62be 100644
 -      withOutput(async (...args) => {
 -        const permission = args[0] as string;
 -        const options = args.at(-2) as HubPermissionsOptions;
-+      withOutput(async (permission = "", options: HubPermissionsOptions = {} as HubPermissionsOptions) => {
++      withOutput(async (permission = "", options: HubPermissionsOptions) => {
          return runHubPermissionChange(operation, permission, options, dependencies);
        }),
      );
 diff --git a/packages/cli/src/commands/hub/projects.ts b/packages/cli/src/commands/hub/projects.ts
-index b5541e7..ea541e9 100644
+index b5541e7..c398ad1 100644
 --- a/packages/cli/src/commands/hub/projects.ts
 +++ b/packages/cli/src/commands/hub/projects.ts
 @@ -83,8 +83,7 @@ export function addHubProjectsCommand(
@@ -580,7 +580,7 @@ index b5541e7..ea541e9 100644
    ).action(
 -    withOutput(async (...args) => {
 -      const options = args.at(-2) as HubProjectsOptions;
-+    withOutput(async (options: HubProjectsOptions = {} as HubProjectsOptions) => {
++    withOutput(async (options: HubProjectsOptions) => {
        return runHubProjects(options, dependencies);
      }),
    );
