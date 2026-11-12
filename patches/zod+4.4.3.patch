@@ -48,19 +48,208 @@
  import * as parse from "./parse.js";
  // Lazy-bind builder methods.
  //
-@@ -280,12 +279,23 @@
-     inst.cidrv4 = (params) => inst.check(core._cidrv4(ZodCIDRv4, params));
-     inst.cidrv6 = (params) => inst.check(core._cidrv6(ZodCIDRv6, params));
-     inst.e164 = (params) => inst.check(core._e164(ZodE164, params));
+@@ -55,34 +54,65 @@
+ }
+ export const ZodType = /*@__PURE__*/ core.$constructor("ZodType", (inst, def) => {
+     core.$ZodType.init(inst, def);
+-    Object.assign(inst["~standard"], {
++    // "~standard" stays lazy: reading it here to add jsonSchema built it, and its closures,
++    // for every schema at construction.
++    const coreStandard = Object.getOwnPropertyDescriptor(inst, "~standard").get;
++    util.defineLazy(inst, "~standard", () => Object.assign(coreStandard.call(inst), {
+         jsonSchema: {
+             input: createStandardJSONSchemaMethod(inst, "input"),
+             output: createStandardJSONSchemaMethod(inst, "output"),
+         },
+-    });
+-    inst.toJSONSchema = createToJSONSchemaMethod(inst, {});
++    }));
+     inst.def = def;
+     inst.type = def.type;
+     Object.defineProperty(inst, "_def", { value: def });
+-    // Parse-family is intentionally kept as per-instance closures: these are
+-    // the hot path AND the most-detached methods (`arr.map(schema.parse)`,
+-    // `const { parse } = schema`, etc.). Eager closures here mean callers pay
+-    // ~12 closure allocations per schema but get monomorphic call sites and
+-    // detached usage that "just works".
+-    inst.parse = (data, params) => parse.parse(inst, data, params, { callee: inst.parse });
+-    inst.safeParse = (data, params) => parse.safeParse(inst, data, params);
+-    inst.parseAsync = async (data, params) => parse.parseAsync(inst, data, params, { callee: inst.parseAsync });
+-    inst.safeParseAsync = async (data, params) => parse.safeParseAsync(inst, data, params);
+-    inst.spa = inst.safeParseAsync;
+-    inst.encode = (data, params) => parse.encode(inst, data, params);
+-    inst.decode = (data, params) => parse.decode(inst, data, params);
+-    inst.encodeAsync = async (data, params) => parse.encodeAsync(inst, data, params);
+-    inst.decodeAsync = async (data, params) => parse.decodeAsync(inst, data, params);
+-    inst.safeEncode = (data, params) => parse.safeEncode(inst, data, params);
+-    inst.safeDecode = (data, params) => parse.safeDecode(inst, data, params);
+-    inst.safeEncodeAsync = async (data, params) => parse.safeEncodeAsync(inst, data, params);
+-    inst.safeDecodeAsync = async (data, params) => parse.safeDecodeAsync(inst, data, params);
++    // Parse-family methods are lazy-bound like the builders below: an eager closure per
++    // method made each schema a reference cycle, and building the protocol's schemas at
++    // start-up spent most of a native CLI's CPU in the cycle collector.
++    _installLazyMethods(inst, "ZodTypeParse", {
++        toJSONSchema(params) {
++            return createToJSONSchemaMethod(this, {})(params);
++        },
++        parse(data, params) {
++            return parse.parse(this, data, params, { callee: this.parse });
++        },
++        safeParse(data, params) {
++            return parse.safeParse(this, data, params);
++        },
++        async parseAsync(data, params) {
++            return parse.parseAsync(this, data, params, { callee: this.parseAsync });
++        },
++        async safeParseAsync(data, params) {
++            return parse.safeParseAsync(this, data, params);
++        },
++        async spa(data, params) {
++            return parse.safeParseAsync(this, data, params);
++        },
++        encode(data, params) {
++            return parse.encode(this, data, params);
++        },
++        decode(data, params) {
++            return parse.decode(this, data, params);
++        },
++        async encodeAsync(data, params) {
++            return parse.encodeAsync(this, data, params);
++        },
++        async decodeAsync(data, params) {
++            return parse.decodeAsync(this, data, params);
++        },
++        safeEncode(data, params) {
++            return parse.safeEncode(this, data, params);
++        },
++        safeDecode(data, params) {
++            return parse.safeDecode(this, data, params);
++        },
++        async safeEncodeAsync(data, params) {
++            return parse.safeEncodeAsync(this, data, params);
++        },
++        async safeDecodeAsync(data, params) {
++            return parse.safeDecodeAsync(this, data, params);
++        },
++    });
+     // All builder methods are placed on the internal prototype as lazy-bind
+     // getters. On first access per-instance, a bound thunk is allocated and
+     // cached as an own property; subsequent accesses skip the getter. This
+@@ -257,35 +287,102 @@
+ export const ZodString = /*@__PURE__*/ core.$constructor("ZodString", (inst, def) => {
+     core.$ZodString.init(inst, def);
+     _ZodString.init(inst, def);
+-    inst.email = (params) => inst.check(core._email(ZodEmail, params));
+-    inst.url = (params) => inst.check(core._url(ZodURL, params));
+-    inst.jwt = (params) => inst.check(core._jwt(ZodJWT, params));
+-    inst.emoji = (params) => inst.check(core._emoji(ZodEmoji, params));
+-    inst.guid = (params) => inst.check(core._guid(ZodGUID, params));
+-    inst.uuid = (params) => inst.check(core._uuid(ZodUUID, params));
+-    inst.uuidv4 = (params) => inst.check(core._uuidv4(ZodUUID, params));
+-    inst.uuidv6 = (params) => inst.check(core._uuidv6(ZodUUID, params));
+-    inst.uuidv7 = (params) => inst.check(core._uuidv7(ZodUUID, params));
+-    inst.nanoid = (params) => inst.check(core._nanoid(ZodNanoID, params));
+-    inst.guid = (params) => inst.check(core._guid(ZodGUID, params));
+-    inst.cuid = (params) => inst.check(core._cuid(ZodCUID, params));
+-    inst.cuid2 = (params) => inst.check(core._cuid2(ZodCUID2, params));
+-    inst.ulid = (params) => inst.check(core._ulid(ZodULID, params));
+-    inst.base64 = (params) => inst.check(core._base64(ZodBase64, params));
+-    inst.base64url = (params) => inst.check(core._base64url(ZodBase64URL, params));
+-    inst.xid = (params) => inst.check(core._xid(ZodXID, params));
+-    inst.ksuid = (params) => inst.check(core._ksuid(ZodKSUID, params));
+-    inst.ipv4 = (params) => inst.check(core._ipv4(ZodIPv4, params));
+-    inst.ipv6 = (params) => inst.check(core._ipv6(ZodIPv6, params));
+-    inst.cidrv4 = (params) => inst.check(core._cidrv4(ZodCIDRv4, params));
+-    inst.cidrv6 = (params) => inst.check(core._cidrv6(ZodCIDRv6, params));
+-    inst.e164 = (params) => inst.check(core._e164(ZodE164, params));
 -    // iso
 -    inst.datetime = (params) => inst.check(iso.datetime(params));
 -    inst.date = (params) => inst.check(iso.date(params));
 -    inst.time = (params) => inst.check(iso.time(params));
 -    inst.duration = (params) => inst.check(iso.duration(params));
-+    inst.datetime = (params) => inst.check(isoDatetime(params));
-+    inst.date = (params) => inst.check(isoDate(params));
-+    inst.time = (params) => inst.check(isoTime(params));
-+    inst.duration = (params) => inst.check(isoDuration(params));
++    _installLazyMethods(inst, "ZodString", {
++        email(params) {
++            return this.check(core._email(ZodEmail, params));
++        },
++        url(params) {
++            return this.check(core._url(ZodURL, params));
++        },
++        jwt(params) {
++            return this.check(core._jwt(ZodJWT, params));
++        },
++        emoji(params) {
++            return this.check(core._emoji(ZodEmoji, params));
++        },
++        guid(params) {
++            return this.check(core._guid(ZodGUID, params));
++        },
++        uuid(params) {
++            return this.check(core._uuid(ZodUUID, params));
++        },
++        uuidv4(params) {
++            return this.check(core._uuidv4(ZodUUID, params));
++        },
++        uuidv6(params) {
++            return this.check(core._uuidv6(ZodUUID, params));
++        },
++        uuidv7(params) {
++            return this.check(core._uuidv7(ZodUUID, params));
++        },
++        nanoid(params) {
++            return this.check(core._nanoid(ZodNanoID, params));
++        },
++        guid(params) {
++            return this.check(core._guid(ZodGUID, params));
++        },
++        cuid(params) {
++            return this.check(core._cuid(ZodCUID, params));
++        },
++        cuid2(params) {
++            return this.check(core._cuid2(ZodCUID2, params));
++        },
++        ulid(params) {
++            return this.check(core._ulid(ZodULID, params));
++        },
++        base64(params) {
++            return this.check(core._base64(ZodBase64, params));
++        },
++        base64url(params) {
++            return this.check(core._base64url(ZodBase64URL, params));
++        },
++        xid(params) {
++            return this.check(core._xid(ZodXID, params));
++        },
++        ksuid(params) {
++            return this.check(core._ksuid(ZodKSUID, params));
++        },
++        ipv4(params) {
++            return this.check(core._ipv4(ZodIPv4, params));
++        },
++        ipv6(params) {
++            return this.check(core._ipv6(ZodIPv6, params));
++        },
++        cidrv4(params) {
++            return this.check(core._cidrv4(ZodCIDRv4, params));
++        },
++        cidrv6(params) {
++            return this.check(core._cidrv6(ZodCIDRv6, params));
++        },
++        e164(params) {
++            return this.check(core._e164(ZodE164, params));
++        },
++        datetime(params) {
++            return this.check(isoDatetime(params));
++        },
++        date(params) {
++            return this.check(isoDate(params));
++        },
++        time(params) {
++            return this.check(isoTime(params));
++        },
++        duration(params) {
++            return this.check(isoDuration(params));
++        },
++    });
  });
 +export function isoDatetime(params) {
 +    return core._isoDateTime(ZodISODateTime, params);
@@ -77,7 +266,7 @@
  export function string(params) {
      return core._string(ZodString, params);
  }
-@@ -293,6 +303,24 @@
+@@ -293,6 +390,24 @@
      core.$ZodStringFormat.init(inst, def);
      _ZodString.init(inst, def);
  });

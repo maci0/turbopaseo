@@ -64,7 +64,7 @@ The four targets and the runtime packs they need are in [docs/targets.md](docs/t
 
 ## Status
 
-Updated 2026-11-11. "IR" means scriptc's frontend accepts the program (`scriptc build --emit=ir`, typecheck plus lowering). "Binary" means it also went through LLVM and linked. "Runs" means the native binary was executed.
+Updated 2026-11-13. "IR" means scriptc's frontend accepts the program (`scriptc build --emit=ir`, typecheck plus lowering). "Binary" means it also went through LLVM and linked. "Runs" means the native binary was executed.
 
 | Piece | IR | Binary | Runs | Notes |
 | --- | --- | --- | --- | --- |
@@ -81,15 +81,15 @@ Updated 2026-11-11. "IR" means scriptc's frontend accepts the program (`scriptc 
 | `@getpaseo/client`: websocket transport, relay E2EE transport, ssh tunnel, buffering, `hosts` | yes | not built | no | |
 | `@getpaseo/client`: `DaemonClient` class | yes | not built | no | 4 minutes of frontend time on its own |
 | `@getpaseo/client/node` (`createHostClient`) | yes | yes | no | Compiles from `dist` after the source patch. |
-| CLI (`make`, entry `native/entries/cli/index.ts`) | yes | yes | yes | `builds/paseo-linux-x64`. `OPTIMIZATION=dev`: 2 to 10 min, about 560 MB with debug info; `daemon config set` and `unset` write the same `config.json` as the Node CLI. `OPTIMIZATION=release` built earlier (21 min, 208 MB, the 22 no-daemon commands below passed on it) but now fails after 21 min with `SC3004` at `index.ts:1:1`, in both `make dist` and `make linux-x64`, with scriptc 0.4.10 and 0.4.11, with and without the build cache; the dev build of the same source passes. Reported as [scriptc#3584](https://github.com/vercel-labs/scriptc/issues/3584). |
+| CLI (`make`, entry `native/entries/cli/index.ts`) | yes | yes | yes | `builds/paseo-linux-x64`. `OPTIMIZATION=dev`: 2 to 10 min, about 560 MB with debug info; `daemon config set` and `unset` write the same `config.json` as the Node CLI. `OPTIMIZATION=release` built earlier (21 min, 208 MB, the 22 no-daemon commands below passed on it) then failed with `SC3004` at `index.ts:1:1` ([scriptc#3584](https://github.com/vercel-labs/scriptc/issues/3584)). The cause, `return this.fail(...)` in our v8 codec, is fixed in source, and the build now gets past that point, but a full release build needs more than 60 GB in the LLVM step and has not finished since. A dev build without cache needs more than 40 GB. |
 | CLI commands without a daemon | n/a | n/a | yes | 22 of 22 identical to the Node CLI in stdout, stderr and exit code: `--version`, `--help`, 14 subcommand help screens, unknown commands, `daemon status`, and `ls` with no daemon running. |
 | CLI commands against a running Node daemon | n/a | n/a | yes | 17 of 17 identical to the Node CLI against an isolated daemon (own home, port 47130): `ls` variants, `daemon status`, `provider ls`, `workspace ls`, `project ls`, `schedule ls`, `terminal ls`, `host ls`, `heartbeat ls`, `worktree ls`, `plugin ls`, `inspect` and `logs` of a missing agent. `daemon status` can differ between two runs by a time-dependent field. Rechecked on the release binary. |
 | CLI state-changing commands against a running Node daemon | n/a | n/a | yes | Same results as the Node CLI for one scenario: `workspace create`, `terminal create`, `terminal send-keys`, `terminal capture` (the typed marker comes back), `terminal kill`, `workspace archive`. Found and fixed a native crash in the generated message validators (issue paths that mix names and indexes). Not tested: `run`, `send`, `attach` and anything else that needs an agent provider (they would spend provider credits), relay and SSH targets, hub commands. |
-| Native CLI against the native daemon | n/a | n/a | yes | `daemon status`, `ls`, `provider ls`, `workspace ls`, `terminal ls`: exit 0. State-changing: `workspace create`, `terminal create`, `terminal send-keys`, `terminal capture` (shows the typed command's output), `terminal kill`, `workspace archive` all succeed. Not compared line by line with the Node CLI yet. Known gap: `paseo daemon config set` fails natively (the CLI compiles the server from its dist JavaScript, where the config walk is untyped). |
+| Native CLI against the native daemon | n/a | n/a | yes | `daemon status`, `ls`, `provider ls`, `workspace ls`, `terminal ls`: exit 0. State-changing: `workspace create`, `terminal create`, `terminal send-keys`, `terminal capture` (shows the typed command's output), `terminal kill`, `workspace archive` all succeed. Not compared line by line with the Node CLI yet. Known gaps: `paseo daemon config set` fails natively (the CLI compiles the server from its dist JavaScript, where the config walk is untyped); zod's `toJSONSchema` throws natively ([scriptc#3605](https://github.com/vercel-labs/scriptc/issues/3605)), which structured agent output and the MCP tool listing use. |
 | Terminals (`node-pty` replacement) | yes | yes | yes | `native/pty/`: `forkpty` C shim through scriptc FFI with node-pty's `spawn` members. `native/pty/test.sh` passes on Linux (spawn, output, input, resize, kill, reaping, spawn errors). Not wired into Paseo. macOS unverified. |
 | Cross targets (`linux-arm64`, `darwin-x64`, `darwin-arm64`) | no | no | no | not attempted; need the runtime packs and zig |
 | Daemon runtime files (skills, builtin plugins, ONNX voice asset, shell integration, OpenCode bridge, ICU data) | n/a | n/a | yes | `make dist` puts them beside the binaries in `dist/paseo-<version>-<host>/`; a native binary finds them next to `process.execPath`. A copy run from `~/.cache` with `work/`, `native/` and `builds/` hidden in a mount namespace starts its daemon through `paseo daemon start`, answers `daemon status`, `ls` and `provider ls`, and loads all 13 built-in plugins. |
-| Benchmarks | n/a | n/a | no | nothing to measure yet |
+| Benchmarks | n/a | n/a | dev build | [docs/performance.md](docs/performance.md). The dev CLI uses 1.1 to 1.3 times the CPU of the Node CLI per command (one thread, about 700 ms, almost all start-up), and the dev daemon 0.5 times Node's CPU to start. A profile put 82% of CLI start-up in scriptc's runtime, mostly the cycle collector, driven by building the protocol's zod schemas; the zod patch cuts that load by 13 to 17% in instructions and 41% in memory. In a release build the schemas load in fewer instructions than under Node. The release CLI is not measured yet. |
 
 ### Native stand-ins
 
@@ -132,4 +132,5 @@ A build started at the repo root also typechecks the React Native app and fails 
 - [Build](docs/build.md)
 - [Patches](docs/patches.md)
 - [Targets](docs/targets.md)
+- [Performance](docs/performance.md): benchmarks and the start-up profile
 - [Upstream candidates](docs/upstream.md): fixes worth sending upstream regardless of scriptc
