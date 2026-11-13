@@ -98,7 +98,7 @@ The hub contracts and problem schemas now load on the first hub request (`work/p
 
 ## Not done
 
-- The release CLI and daemon are not measured; the release build needs more than 60 GB ([build](build.md)).
+- The release CLI and daemon are not measured; the release build needs more than 90 GB ([build](build.md)).
 - No release-build profile: the release binary has no symbols, so its samples cannot be attributed.
 - A command that connects to the daemon still builds all protocol schemas; making them lazy is a change inside `@getpaseo/protocol`.
 - The idle daemon's cycle-collector trigger.
